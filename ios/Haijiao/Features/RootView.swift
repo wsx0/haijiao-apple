@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import WebKit
 
 struct RootView: View {
     private static let homeURL = HJWeb.home
@@ -18,18 +19,31 @@ struct RootView: View {
     @State private var reloadToken = 0
     @State private var showBar = true
     @State private var lastTap: Date = .distantPast
+    /// 广告拦截规则（异步编译，编译完才建 webview）
+    @State private var ruleList: WKContentRuleList?
+    @State private var rulesReady = false
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
 
-            LegacyWebView(url: Self.homeURL,
-                          progress: $progress,
-                          canGoBack: $canGoBack,
-                          canGoForward: $canGoForward,
-                          title: $title,
-                          reloadToken: reloadToken)
-                .ignoresSafeArea(edges: .bottom)
+            if rulesReady {
+                LegacyWebView(url: Self.homeURL,
+                              progress: $progress,
+                              canGoBack: $canGoBack,
+                              canGoForward: $canGoForward,
+                              title: $title,
+                              reloadToken: reloadToken,
+                              ruleList: ruleList)
+                    .ignoresSafeArea(edges: .bottom)
+            } else {
+                VStack(spacing: 14) {
+                    ProgressView().tint(.white)
+                    Text("准备中…")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            }
 
             // 顶部进度条
             if progress > 0, progress < 1 {
@@ -73,6 +87,11 @@ struct RootView: View {
             }
         }
         .statusBarHidden(false)
+        .task {
+            // 广告规则编译一次即可（WKContentRuleListStore 有缓存）
+            ruleList = await AdBlock.makeRuleList()
+            rulesReady = true
+        }
         .onTapGesture {
             // 双击（间隔内连点两次）切换导航栏
             let now = Date()
