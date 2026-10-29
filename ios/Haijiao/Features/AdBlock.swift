@@ -72,11 +72,19 @@ enum AdBlock {
     [class*="pop-ad" i], [class*="popad" i],
     [class*="popup-ad" i], [class*="modal-ad" i],
     [class*="interstitial" i],
+    /* 开屏广告 —— 首帧就藏起来，不依赖 JS */
+    [class*="splash" i], [id*="splash" i],
+    [class*="launch-ad" i], [class*="launchad" i],
+    [class*="open-screen" i], [class*="openscreen" i],
+    [class*="start-ad" i], [class*="boot-ad" i],
+    [class*="kaiping" i], [class*="startpage" i],
+    [class*="welcome-ad" i], [class*="welcomead" i],
+    [class*="guide-ad" i], [class*="guidead" i],
     /* 广告位 iframe */
     iframe[src*="doubleclick" i],
     iframe[src*="/ad" i][src*="?"],
     iframe[id*="ad" i],
-    /* 推广条 */
+    /* 推广条 / 引导下载 */
     [class*="promo-bar" i], [class*="download-bar" i],
     [class*="app-guide" i], [class*="open-app" i],
     /* 遮罩类弹窗（只在明显是广告位时隐藏，避免误伤登录框） */
@@ -88,18 +96,19 @@ enum AdBlock {
     }
     """
     
-    /// 注入用的 JS：把上面的规则再以「删节点」的方式强化一遍，并封杀弹窗。
+    /// 注入用的 JS：删节点 + 封弹窗 + 专治开屏广告。
     static let js = """
     (function () {
       if (window.__hj_adblock) return;
       window.__hj_adblock = true;
 
       var HOSTS = \(jsArray(blockedHosts));
+      var START = Date.now();
 
       // 1) 封掉 window.open（弹窗广告主要来源）
       try { window.open = function () { return null; }; } catch (e) {}
 
-      // 2) 封掉 alert/confirm 广告（站点正常功能用的是自定义弹窗，不吃这两个）
+      // 2) 封掉 alert/confirm 广告
       var _alert = window.alert;
       window.alert = function (msg) {
         var s = String(msg || '');
@@ -107,29 +116,97 @@ enum AdBlock {
         return _alert && _alert.call(window, msg);
       };
 
-      // 3) 判定一个元素是不是广告
-      function looksLikeAd(el) {
-        if (!el || el.nodeType !== 1) return false;
-        var idc = ((el.id || '') + ' ' + (el.className && el.className.baseVal !== undefined
-            ? el.className.baseVal : (el.className || ''))).toLowerCase();
-        if (!idc) return false;
-        return /(advert|adsense|adsbygoogle|adbanner|ad-banner|ad-box|ad-wrap|ad-container|guanggao|popunder|interstitial|promo-bar|download-bar|open-app)/.test(idc);
+      function classOf(el) {
+        var c = el.className;
+        if (c && c.baseVal !== undefined) c = c.baseVal;
+        return ((el.id || '') + ' ' + (c || '')).toLowerCase();
       }
 
-      // 4) 清除第三方广告脚本与 iframe
+      // 3) 明确是广告的容器
+      var AD_SEL = [
+        '[class*="advert" i]', '[id*="advert" i]',
+        'ins.adsbygoogle', '[class*="adsense" i]', '[id*="adsense" i]',
+        '[class*="adbanner" i]', '[class*="ad-banner" i]',
+        '[class*="ad-box" i]', '[id*="ad-box" i]',
+        '[class*="ad-wrap" i]', '[id*="ad-wrap" i]',
+        '[class*="ad-container" i]', '[id*="ad-container" i]',
+        '[class*="popunder" i]', '[class*="interstitial" i]',
+        '[class*="guanggao" i]', '[class*="promo-bar" i]',
+        '[class*="download-bar" i]', '[class*="open-app" i]',
+        '[class*="float-ad" i]', '[class*="floatad" i]',
+        // ── 开屏广告专用 ──
+        '[class*="splash" i]', '[id*="splash" i]',
+        '[class*="launch-ad" i]', '[class*="launchad" i]',
+        '[class*="open-screen" i]', '[class*="openscreen" i]',
+        '[class*="start-ad" i]', '[class*="boot-ad" i]',
+        '[class*="kaiping" i]', '[class*="startpage" i]',
+        '[class*="welcome-ad" i]', '[class*="welcomead" i]',
+        '[class*="guide-ad" i]', '[class*="guidead" i]'
+      ].join(',');
+
+      // 4) 跳过按钮关键词
+      var SKIP_RE = /^(跳过|跳过广告|跳過|关闭广告|关闭|关闭该广告|不再提示|skip|skip ad|close|×|✕|x)$/i;
+
+      function clickSkip() {
+        var nodes = document.querySelectorAll('div,span,a,button,p,i,em');
+        for (var i = 0; i < nodes.length; i++) {
+          var el = nodes[i];
+          var txt = (el.textContent || '').trim();
+          if (!txt || txt.length > 14) continue;
+          if (!SKIP_RE.test(txt)) continue;
+          var r = el.getBoundingClientRect();
+          if (r.width < 4 || r.height < 4) continue;
+          try { el.click(); } catch (e) {}
+          // 顺手把它所在的全屏父层也删掉
+          var p = el;
+          for (var k = 0; k < 6 && p; k++) {
+            var pr = p.getBoundingClientRect();
+            if (pr.width >= window.innerWidth * 0.8 && pr.height >= window.innerHeight * 0.8) {
+              try { p.remove(); } catch (e) {}
+              break;
+            }
+            p = p.parentElement;
+          }
+        }
+      }
+
+      // 5) 全屏遮罩层判定：铺满 + 高 z-index + 没有输入框
+      //    不要求含广告字样 —— 开屏广告的 class 经常看不出是广告
+      function looksLikeOverlay(el) {
+        if (!el || el.nodeType !== 1) return false;
+        if (el === document.body || el === document.documentElement) return false;
+        // 有输入框的可能是登录/评论框，放过
+        if (el.querySelector('input,textarea,select')) return false;
+        // 有视频/播放器的放过（可能是全屏播放）
+        if (el.querySelector('video')) return false;
+
+        var r = el.getBoundingClientRect();
+        var w = window.innerWidth, h = window.innerHeight;
+        if (r.width < w * 0.92 || r.height < h * 0.92) return false;
+
+        var cs = getComputedStyle(el);
+        if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+        var z = parseInt(cs.zIndex || '0', 10);
+        if (z < 50) return false;
+
+        var idc = classOf(el);
+        // 明确是弹窗/遮罩的命名，直接判
+        if (/(mask|overlay|modal|dialog|popup|splash|launch|start|welcome|guide)/.test(idc)) return true;
+
+        // 否则：看它是不是「图片 + 倒计时/跳过」那种开屏结构
+        var hasImg = !!el.querySelector('img,picture,canvas');
+        var hasCountdown = /(跳过|\\d+\\s*s|倒计时)/.test(el.textContent || '');
+        return hasImg && hasCountdown;
+      }
+
+      // 6) 清理
       function sweep() {
-        // 广告位
+        // 明确广告位
         try {
-          document.querySelectorAll(
-            '[class*="advert" i],[id*="advert" i],ins.adsbygoogle,' +
-            '[class*="adsense" i],[class*="adbanner" i],[class*="ad-banner" i],' +
-            '[class*="ad-box" i],[class*="ad-wrap" i],[class*="ad-container" i],' +
-            '[class*="popunder" i],[class*="interstitial" i],' +
-            '[class*="promo-bar" i],[class*="download-bar" i],[class*="open-app" i]'
-          ).forEach(function (el) { el.remove(); });
+          document.querySelectorAll(AD_SEL).forEach(function (el) { el.remove(); });
         } catch (e) {}
 
-        // 来自广告域的资源
+        // 广告域名资源
         try {
           document.querySelectorAll('iframe,script,img').forEach(function (el) {
             var src = (el.src || el.getAttribute('data-src') || '').toLowerCase();
@@ -140,30 +217,37 @@ enum AdBlock {
           });
         } catch (e) {}
 
-        // 全屏遮罩型广告层：只删「铺满全屏 + 高 z-index + 内含广告字样」
+        // 全屏遮罩
         try {
-          var w = window.innerWidth, h = window.innerHeight;
-          document.querySelectorAll('div').forEach(function (el) {
-            var r = el.getBoundingClientRect();
-            if (r.width < w * 0.85 || r.height < h * 0.85) return;
-            var z = parseInt(getComputedStyle(el).zIndex || '0', 10);
-            if (z < 100) return;
-            if (looksLikeAd(el)) el.remove();
-          });
+          var kids = document.body ? document.body.children : [];
+          for (var i = 0; i < kids.length; i++) {
+            if (looksLikeOverlay(kids[i])) {
+              try { kids[i].remove(); } catch (e) {}
+            }
+          }
         } catch (e) {}
+
+        // 跳过按钮
+        clickSkip();
       }
 
-      // 5) 首屏立刻扫一次，之后定时扫（Vue 会不断重建 DOM）
+      // 7) 前 6 秒高频扫（开屏广告就在这段时间），之后降到 1.5 秒
       sweep();
-      setInterval(sweep, 1200);
+      var fast = setInterval(function () {
+        sweep();
+        if (Date.now() - START > 6000) {
+          clearInterval(fast);
+          setInterval(sweep, 1500);
+        }
+      }, 120);
 
-      // 6) DOM 变动也触发，降低广告闪现时间
+      // 8) DOM 变动立刻扫
       try {
         var pending = false;
         new MutationObserver(function () {
           if (pending) return;
           pending = true;
-          setTimeout(function () { pending = false; sweep(); }, 300);
+          setTimeout(function () { pending = false; sweep(); }, 60);
         }).observe(document.documentElement, { childList: true, subtree: true });
       } catch (e) {}
     })();
