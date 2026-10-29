@@ -1,0 +1,68 @@
+name: Build iOS IPA
+
+# 把 ios/Haijiao 打包成未签名 ipa（TrollStore / Sideloadly / AltStore 自签用）。
+# 纯系统框架，没有第三方依赖，不需要 CocoaPods。
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'ios/**'
+      - 'tools/**'
+      - 'scripts/build-ipa.sh'
+      - '.github/workflows/build-ipa.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          sw_vers
+          uname -m
+
+      # .xcodeproj 是生成物，不进 git，用生成器脚本判断根目录
+      - name: 生成并校验 Xcode 工程
+        run: |
+          if [ -f tools/gen_ios_xcodeproj.py ]; then ROOT=.; else ROOT=haijiao-apple; fi
+          echo "ROOT=$ROOT" >> "$GITHUB_ENV"
+          cd "$ROOT"
+          python3 tools/gen_ios_xcodeproj.py --verify
+          echo "--- 生成结果 ---"
+          ls -la ios/ | head
+          test -f ios/Haijiao.xcodeproj/project.pbxproj && echo "✓ project.pbxproj 就位"
+          test -f ios/Haijiao.xcodeproj/xcshareddata/xcschemes/Haijiao.xcscheme && echo "✓ shared scheme 就位"
+
+      - name: 打未签名 ipa
+        working-directory: ${{ env.ROOT }}
+        run: |
+          chmod +x scripts/build-ipa.sh
+          ./scripts/build-ipa.sh --unsigned
+
+      - name: 产物清单
+        working-directory: ${{ env.ROOT }}
+        run: |
+          ls -la build/*.ipa || true
+          echo "--- Mach-O ---"
+          file build/dd/Build/Products/Release-iphoneos/Haijiao.app/Haijiao || true
+          lipo -info build/dd/Build/Products/Release-iphoneos/Haijiao.app/Haijiao || true
+          echo "--- bundle ---"
+          ls -la build/dd/Build/Products/Release-iphoneos/Haijiao.app || true
+
+      - name: 上传 ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: Haijiao-ipa-unsigned-${{ github.run_number }}
+          path: ${{ env.ROOT }}/build/*.ipa
+          if-no-files-found: error
+          retention-days: 30
