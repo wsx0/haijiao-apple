@@ -16,12 +16,14 @@ struct LegacyWebView: UIViewControllerRepresentable {
     @Binding var canGoForward: Bool
     @Binding var title: String
     let reloadToken: Int
+    /// 广告拦截规则（网络层）。为 nil 时只靠 CSS/JS 两层。
+    let ruleList: WKContentRuleList?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIViewController(context: Context) -> Container {
         let c = Container()
-        c.install(url: url, coordinator: context.coordinator)
+        c.install(url: url, coordinator: context.coordinator, ruleList: ruleList)
         return c
     }
 
@@ -37,7 +39,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
     final class Container: UIViewController {
         var web: WKWebView?
 
-        func install(url: URL, coordinator: Coordinator) {
+        func install(url: URL, coordinator: Coordinator, ruleList: WKContentRuleList?) {
             let cfg = WKWebViewConfiguration()
 
             // 视频不内联，一播进系统全屏播放器
@@ -51,6 +53,31 @@ struct LegacyWebView: UIViewControllerRepresentable {
 
             cfg.preferences.javaScriptCanOpenWindowsAutomatically = true
             cfg.defaultWebpagePreferences.allowsContentJavaScript = true
+
+            // ── 去广告 ──────────────────────────────────────
+            // 第 1 层：网络层规则
+            if let ruleList {
+                cfg.userContentController.add(ruleList)
+            }
+            // 第 2 层：CSS 立刻隐藏
+            let cssScript = WKUserScript(
+                source: """
+                (function(){
+                  var s = document.createElement('style');
+                  s.type = 'text/css';
+                  s.textContent = `\(AdBlock.css)`;
+                  (document.head || document.documentElement).appendChild(s);
+                })();
+                """,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false)
+            cfg.userContentController.addUserScript(cssScript)
+            // 第 3 层：JS 定时清理 + 封弹窗
+            let jsScript = WKUserScript(
+                source: AdBlock.js,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: false)
+            cfg.userContentController.addUserScript(jsScript)
 
             let w = WKWebView(frame: .zero, configuration: cfg)
             w.navigationDelegate = coordinator
