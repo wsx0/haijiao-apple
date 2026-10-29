@@ -137,12 +137,17 @@ enum AdBlock {
       // 3) 判定一个「body 直接子元素」是不是广告层
       function isAdLayer(el) {
         if (!el || el.nodeType !== 1) return false;
-        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'LINK') return false;
+        var tag = el.tagName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' ||
+            tag === 'META' || tag === 'NOSCRIPT') return false;
+        // #app 是根容器，绝不能删
+        if (el.id === 'app') return false;
 
         var cs = getComputedStyle(el);
         // 必须浮在上面
         if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
         if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+        if (parseFloat(cs.opacity || '1') < 0.05) return false;
 
         var z = parseInt(cs.zIndex || '0', 10);
         if (isNaN(z) || z < 10) return false;
@@ -183,25 +188,67 @@ enum AdBlock {
         return false;
       }
 
-      // 5) 主清理：只看 body 的第一层
+      // 5) 主清理
+      //
+      //    关键：Vue 的弹窗渲染在 #app 内部，不是 body 的直接子节点 ——
+      //    只扫 body.children 会完全扫不到。但也不能 querySelectorAll('*')。
+      //    折中：用 CSS 特征先筛出少量候选（只有浮层才带 position:fixed 的内联样式
+      //    或 popup/modal/mask 这类 class），再对这几个候选做几何判定。
+      var CAND_SEL = [
+        'div[style*="position: fixed"]',
+        'div[style*="position:fixed"]',
+        'div[class*="popup" i]', 'div[class*="modal" i]',
+        'div[class*="mask" i]', 'div[class*="overlay" i]',
+        'div[class*="dialog" i]', 'div[class*="layer" i]',
+        'div[class*="splash" i]', 'div[class*="launch" i]',
+        'div[class*="guide" i]', 'div[class*="advert" i]',
+        'div[id*="popup" i]', 'div[id*="modal" i]',
+        'div[id*="mask" i]', 'div[id*="ad" i]'
+      ].join(',');
+
       function sweep() {
         if (!document.body) return;
+
+        // 5.1 body 的直接子元素（原生浮层常挂这里）
+        var i, el;
         var kids = document.body.children;
-        // 倒序遍历，删元素不会打乱未处理的索引
-        for (var i = kids.length - 1; i >= 0; i--) {
-          var el = kids[i];
+        for (i = kids.length - 1; i >= 0; i--) {
+          el = kids[i];
           if (!el || el[HIT]) continue;
           try {
-            if (isAdLayer(el)) {
-              clickSkipInside(el);
-              el.remove();
-            } else {
-              el[HIT] = 1;    // 判过了就不再算
-            }
+            if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
+            else { el[HIT] = 1; }
           } catch (e) {}
         }
 
-        // 顺手清掉来自广告域的 iframe/script/img（一次 querySelectorAll，范围可控）
+        // 5.2 #app 的直接子元素（Vue 把弹窗挂在根组件里）
+        var app = document.getElementById('app');
+        if (app) {
+          var ak = app.children;
+          for (i = ak.length - 1; i >= 0; i--) {
+            el = ak[i];
+            if (!el || el[HIT]) continue;
+            try {
+              if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
+              else { el[HIT] = 1; }
+            } catch (e) {}
+          }
+        }
+
+        // 5.3 特征候选（数量很少，通常个位数）
+        try {
+          var cands = document.querySelectorAll(CAND_SEL);
+          var LIMIT = Math.min(cands.length, 40);   // 硬上限
+          for (i = 0; i < LIMIT; i++) {
+            el = cands[i];
+            if (!el || el[HIT] || !el.parentNode) continue;
+            try {
+              if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
+            } catch (e) {}
+          }
+        } catch (e) {}
+
+        // 5.4 广告域资源
         try {
           var junk = document.querySelectorAll(
             'iframe[src*="doubleclick" i],iframe[src*="googlesyndication" i],' +
