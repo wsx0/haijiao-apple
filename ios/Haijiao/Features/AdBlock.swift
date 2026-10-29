@@ -202,9 +202,42 @@ enum AdBlock {
         'div[class*="dialog" i]', 'div[class*="layer" i]',
         'div[class*="splash" i]', 'div[class*="launch" i]',
         'div[class*="guide" i]', 'div[class*="advert" i]',
+        'div[class*="banner" i]', 'div[class*="notice" i]',
         'div[id*="popup" i]', 'div[id*="modal" i]',
-        'div[id*="mask" i]', 'div[id*="ad" i]'
+        'div[id*="mask" i]', 'div[id*="ad" i]',
+        'div[id*="banner" i]',
+        'a[href*="javascript:void"]'
       ].join(',');
+
+      // 5.0 关掉站点自己的提示弹窗（不删，只点掉按钮，免得破坏正常功能）
+      //     海角开屏会依次弹 3 个「warning 警告」，每个都有「我知道了」/「好」
+      var DISMISS_RE = /^(我知道了|知道了|好的|好|确定|确认|关闭|同意|继续|我知道了。)$/;
+
+      function autoDismiss() {
+        // 只在浮层候选里找按钮，范围很小
+        var zones = document.querySelectorAll(
+          'div[class*="popup" i],div[class*="modal" i],div[class*="mask" i],' +
+          'div[class*="dialog" i],div[class*="notice" i],div[class*="warn" i]'
+        );
+        var LIMIT = Math.min(zones.length, 20);
+        for (var i = 0; i < LIMIT; i++) {
+          var z = zones[i];
+          if (!z || !z.parentNode) continue;
+          var btns = z.querySelectorAll('button,a,div,span');
+          var N = Math.min(btns.length, 40);
+          for (var j = 0; j < N; j++) {
+            var b = btns[j];
+            var t = (b.textContent || '').trim();
+            if (!t || t.length > 8) continue;
+            if (!DISMISS_RE.test(t)) continue;
+            // 排除登录按钮
+            if (/登录|注册|登陆/.test(t)) continue;
+            try { b.click(); } catch (e) {}
+            return true;
+          }
+        }
+        return false;
+      }
 
       function sweep() {
         if (!document.body) return;
@@ -248,7 +281,32 @@ enum AdBlock {
           }
         } catch (e) {}
 
-        // 5.4 广告域资源
+        // 5.4 顶部横幅广告条
+        //     特征：贴着顶部、横向铺满、高度矮（<220px）、含图片或指向外部 / 无文字
+        try {
+          var tops = document.querySelectorAll('a,div');
+          var TN = Math.min(tops.length, 400);
+          var vh = window.innerHeight;
+          for (i = 0; i < TN; i++) {
+            el = tops[i];
+            if (!el || el[HIT] || !el.parentNode) continue;
+            var r = el.getBoundingClientRect();
+            if (r.top > 240 || r.height > 220 || r.height < 40) continue;
+            if (r.width < window.innerWidth * 0.85) continue;
+            // 里面有 img 且整块是链接（点一下跳外站）—— 基本就是横幅广告
+            var href = el.getAttribute && (el.getAttribute('href') || '');
+            var hasImg = !!el.querySelector('img');
+            var txtLen = (el.textContent || '').trim().length;
+            var looksBanner = hasImg && (href.indexOf('javascript') === 0 || href === '' || href === '#');
+            if (looksBanner && txtLen < 30) {
+              try { el.remove(); } catch (e) {}
+            } else {
+              el[HIT] = 1;
+            }
+          }
+        } catch (e) {}
+
+        // 5.5 广告域资源
         try {
           var junk = document.querySelectorAll(
             'iframe[src*="doubleclick" i],iframe[src*="googlesyndication" i],' +
@@ -257,6 +315,9 @@ enum AdBlock {
           );
           for (var k = 0; k < junk.length; k++) { junk[k].remove(); }
         } catch (e) {}
+
+        // 5.6 最后：把站点的 warning 提示点掉
+        autoDismiss();
       }
 
       // 6) 前 8 秒 300ms 一次（开屏弹窗都在这个窗口），之后降到 2 秒
