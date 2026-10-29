@@ -19,31 +19,21 @@ struct RootView: View {
     @State private var reloadToken = 0
     @State private var showBar = true
     @State private var lastTap: Date = .distantPast
-    /// 广告拦截规则（异步编译，编译完才建 webview）
+    /// 广告拦截规则。先渲染再用，编译失败也不影响启动。
     @State private var ruleList: WKContentRuleList?
-    @State private var rulesReady = false
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
 
-            if rulesReady {
-                LegacyWebView(url: Self.homeURL,
-                              progress: $progress,
-                              canGoBack: $canGoBack,
-                              canGoForward: $canGoForward,
-                              title: $title,
-                              reloadToken: reloadToken,
-                              ruleList: ruleList)
-                    .ignoresSafeArea(edges: .bottom)
-            } else {
-                VStack(spacing: 14) {
-                    ProgressView().tint(.white)
-                    Text("准备中…")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                }
-            }
+            LegacyWebView(url: Self.homeURL,
+                          progress: $progress,
+                          canGoBack: $canGoBack,
+                          canGoForward: $canGoForward,
+                          title: $title,
+                          reloadToken: reloadToken,
+                          ruleList: ruleList)
+                .ignoresSafeArea(edges: .bottom)
 
             // 顶部进度条
             if progress > 0, progress < 1 {
@@ -88,9 +78,8 @@ struct RootView: View {
         }
         .statusBarHidden(false)
         .task {
-            // 广告规则编译一次即可（WKContentRuleListStore 有缓存）
+            // 规则在后台编译，不阻塞首帧渲染；失败就只靠 CSS/JS 两层
             ruleList = await AdBlock.makeRuleList()
-            rulesReady = true
         }
         .onTapGesture {
             // 双击（间隔内连点两次）切换导航栏
