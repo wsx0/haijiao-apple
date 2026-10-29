@@ -110,7 +110,24 @@ enum AdBlock {
 
       var HOSTS = \(jsArray(blockedHosts));
       var START = Date.now();
-      var HIT = '__hj_hit';      // 已判定过的节点标记
+      // 已判定过的节点 → 判定时间戳。
+      // 注意不能永久标记：SPA 会复用同一个 DOM 节点，第一次扫时它还是普通容器，
+      // 打上永久标记之后就再也不会被检查 —— 广告换进来也认不出来了。
+      // 因此标记 4 秒后失效，允许重新判定。
+      var SEEN = (typeof WeakMap !== 'undefined') ? new WeakMap() : null;
+      var SEEN_LIFE = 4000;
+
+      function seen(el) {
+        if (!SEEN) return false;
+        var t = SEEN.get(el);
+        if (!t) return false;
+        if (Date.now() - t > SEEN_LIFE) { SEEN['delete'](el); return false; }
+        return true;
+      }
+      function markSeen(el) {
+        if (!SEEN) return;
+        SEEN.set(el, Date.now());
+      }
 
       // 1) 封 window.open（弹窗广告主要来源）
       try { window.open = function () { return null; }; } catch (e) {}
@@ -247,10 +264,10 @@ enum AdBlock {
         var kids = document.body.children;
         for (i = kids.length - 1; i >= 0; i--) {
           el = kids[i];
-          if (!el || el[HIT]) continue;
+          if (!el || seen(el)) continue;
           try {
             if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
-            else { el[HIT] = 1; }
+            else { markSeen(el); }
           } catch (e) {}
         }
 
@@ -260,10 +277,10 @@ enum AdBlock {
           var ak = app.children;
           for (i = ak.length - 1; i >= 0; i--) {
             el = ak[i];
-            if (!el || el[HIT]) continue;
+            if (!el || seen(el)) continue;
             try {
               if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
-              else { el[HIT] = 1; }
+              else { markSeen(el); }
             } catch (e) {}
           }
         }
@@ -274,7 +291,7 @@ enum AdBlock {
           var LIMIT = Math.min(cands.length, 40);   // 硬上限
           for (i = 0; i < LIMIT; i++) {
             el = cands[i];
-            if (!el || el[HIT] || !el.parentNode) continue;
+            if (!el || seen(el) || !el.parentNode) continue;
             try {
               if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
             } catch (e) {}
@@ -285,11 +302,11 @@ enum AdBlock {
         //     特征：贴着顶部、横向铺满、高度矮（<220px）、含图片或指向外部 / 无文字
         try {
           var tops = document.querySelectorAll('a,div');
-          var TN = Math.min(tops.length, 400);
+          var TN = Math.min(tops.length, 800);
           var vh = window.innerHeight;
           for (i = 0; i < TN; i++) {
             el = tops[i];
-            if (!el || el[HIT] || !el.parentNode) continue;
+            if (!el || seen(el) || !el.parentNode) continue;
             var r = el.getBoundingClientRect();
             if (r.top > 240 || r.height > 220 || r.height < 40) continue;
             if (r.width < window.innerWidth * 0.85) continue;
@@ -301,7 +318,7 @@ enum AdBlock {
             if (looksBanner && txtLen < 30) {
               try { el.remove(); } catch (e) {}
             } else {
-              el[HIT] = 1;
+              markSeen(el);
             }
           }
         } catch (e) {}
@@ -324,9 +341,9 @@ enum AdBlock {
       sweep();
       var fast = setInterval(function () {
         sweep();
-        if (Date.now() - START > 8000) {
+        if (Date.now() - START > 20000) {
           clearInterval(fast);
-          setInterval(sweep, 2000);
+          setInterval(sweep, 1500);
         }
       }, 300);
 
