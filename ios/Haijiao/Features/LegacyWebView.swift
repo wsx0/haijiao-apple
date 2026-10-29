@@ -59,7 +59,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
             if let ruleList {
                 cfg.userContentController.add(ruleList)
             }
-            // 第 2 层：CSS 立刻隐藏
+            // 第 2 层：CSS 立刻隐藏（纯样式，零 CPU 成本）
             let cssScript = WKUserScript(
                 source: """
                 (function(){
@@ -72,12 +72,9 @@ struct LegacyWebView: UIViewControllerRepresentable {
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false)
             cfg.userContentController.addUserScript(cssScript)
-            // 第 3 层：JS 定时清理 + 封弹窗
-            let jsScript = WKUserScript(
-                source: AdBlock.js,
-                injectionTime: .atDocumentEnd,
-                forMainFrameOnly: false)
-            cfg.userContentController.addUserScript(jsScript)
+            // 第 3 层 JS 清理先关掉 —— 之前每 120ms 遍历全站元素 + getBoundingClientRect，
+            // 主线程被拖死会触发 watchdog 杀进程，表现出来就是闪退。
+            // 等确认基础版本能跑，再用节流版加回来。
 
             let w = WKWebView(frame: .zero, configuration: cfg)
             w.navigationDelegate = coordinator
