@@ -72,9 +72,15 @@ struct LegacyWebView: UIViewControllerRepresentable {
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false)
             cfg.userContentController.addUserScript(cssScript)
-            // 第 3 层 JS 清理先关掉 —— 之前每 120ms 遍历全站元素 + getBoundingClientRect，
-            // 主线程被拖死会触发 watchdog 杀进程，表现出来就是闪退。
-            // 等确认基础版本能跑，再用节流版加回来。
+            // 第 3 层：JS 清理（低开销版）
+            //   · 只扫 body 的直接子元素，不再遍历全站
+            //   · 前 8 秒 300ms 一次，之后 2 秒
+            //   · 每个节点只判定一次，避免反复强制布局
+            let jsScript = WKUserScript(
+                source: AdBlock.js,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: false)
+            cfg.userContentController.addUserScript(jsScript)
 
             let w = WKWebView(frame: .zero, configuration: cfg)
             w.navigationDelegate = coordinator
