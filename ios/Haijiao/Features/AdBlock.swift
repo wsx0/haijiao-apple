@@ -96,7 +96,13 @@ enum AdBlock {
     }
     """
     
-    /// 注入用的 JS：删节点 + 封弹窗 + 专治开屏广告。
+    /// 注入用的 JS。
+    ///
+    /// 性能红线（上一版就是踩了这个才闪退）：
+    ///   · 只扫 `document.body.children`（第一层，通常 <20 个节点），**绝不** querySelectorAll 全站
+    ///   · 不做「遍历所有元素 + getBoundingClientRect」——那是强制同步布局，主线程直接卡死
+    ///   · 同一个节点只处理一次（打标记），避免反复计算
+    ///   · 前 8 秒 300ms 一次，之后 2 秒一次
     static let js = """
     (function () {
       if (window.__hj_adblock) return;
@@ -104,11 +110,12 @@ enum AdBlock {
 
       var HOSTS = \(jsArray(blockedHosts));
       var START = Date.now();
+      var HIT = '__hj_hit';      // 已判定过的节点标记
 
-      // 1) 封掉 window.open（弹窗广告主要来源）
+      // 1) 封 window.open（弹窗广告主要来源）
       try { window.open = function () { return null; }; } catch (e) {}
 
-      // 2) 封掉 alert/confirm 广告
+      // 2) 封 alert 广告文案
       var _alert = window.alert;
       window.alert = function (msg) {
         var s = String(msg || '');
@@ -116,139 +123,113 @@ enum AdBlock {
         return _alert && _alert.call(window, msg);
       };
 
-      function classOf(el) {
+      function text(el) {
+        var t = el.textContent || '';
+        return t.length > 200 ? t.slice(0, 200) : t;
+      }
+
+      function idc(el) {
         var c = el.className;
         if (c && c.baseVal !== undefined) c = c.baseVal;
         return ((el.id || '') + ' ' + (c || '')).toLowerCase();
       }
 
-      // 3) 明确是广告的容器
-      var AD_SEL = [
-        '[class*="advert" i]', '[id*="advert" i]',
-        'ins.adsbygoogle', '[class*="adsense" i]', '[id*="adsense" i]',
-        '[class*="adbanner" i]', '[class*="ad-banner" i]',
-        '[class*="ad-box" i]', '[id*="ad-box" i]',
-        '[class*="ad-wrap" i]', '[id*="ad-wrap" i]',
-        '[class*="ad-container" i]', '[id*="ad-container" i]',
-        '[class*="popunder" i]', '[class*="interstitial" i]',
-        '[class*="guanggao" i]', '[class*="promo-bar" i]',
-        '[class*="download-bar" i]', '[class*="open-app" i]',
-        '[class*="float-ad" i]', '[class*="floatad" i]',
-        // ── 开屏广告专用 ──
-        '[class*="splash" i]', '[id*="splash" i]',
-        '[class*="launch-ad" i]', '[class*="launchad" i]',
-        '[class*="open-screen" i]', '[class*="openscreen" i]',
-        '[class*="start-ad" i]', '[class*="boot-ad" i]',
-        '[class*="kaiping" i]', '[class*="startpage" i]',
-        '[class*="welcome-ad" i]', '[class*="welcomead" i]',
-        '[class*="guide-ad" i]', '[class*="guidead" i]'
-      ].join(',');
-
-      // 4) 跳过按钮关键词
-      var SKIP_RE = /^(跳过|跳过广告|跳過|关闭广告|关闭|关闭该广告|不再提示|skip|skip ad|close|×|✕|x)$/i;
-
-      function clickSkip() {
-        var nodes = document.querySelectorAll('div,span,a,button,p,i,em');
-        for (var i = 0; i < nodes.length; i++) {
-          var el = nodes[i];
-          var txt = (el.textContent || '').trim();
-          if (!txt || txt.length > 14) continue;
-          if (!SKIP_RE.test(txt)) continue;
-          var r = el.getBoundingClientRect();
-          if (r.width < 4 || r.height < 4) continue;
-          try { el.click(); } catch (e) {}
-          // 顺手把它所在的全屏父层也删掉
-          var p = el;
-          for (var k = 0; k < 6 && p; k++) {
-            var pr = p.getBoundingClientRect();
-            if (pr.width >= window.innerWidth * 0.8 && pr.height >= window.innerHeight * 0.8) {
-              try { p.remove(); } catch (e) {}
-              break;
-            }
-            p = p.parentElement;
-          }
-        }
-      }
-
-      // 5) 全屏遮罩层判定：铺满 + 高 z-index + 没有输入框
-      //    不要求含广告字样 —— 开屏广告的 class 经常看不出是广告
-      function looksLikeOverlay(el) {
+      // 3) 判定一个「body 直接子元素」是不是广告层
+      function isAdLayer(el) {
         if (!el || el.nodeType !== 1) return false;
-        if (el === document.body || el === document.documentElement) return false;
-        // 有输入框的可能是登录/评论框，放过
-        if (el.querySelector('input,textarea,select')) return false;
-        // 有视频/播放器的放过（可能是全屏播放）
-        if (el.querySelector('video')) return false;
-
-        var r = el.getBoundingClientRect();
-        var w = window.innerWidth, h = window.innerHeight;
-        if (r.width < w * 0.92 || r.height < h * 0.92) return false;
+        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'LINK') return false;
 
         var cs = getComputedStyle(el);
+        // 必须浮在上面
         if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
+        if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+
         var z = parseInt(cs.zIndex || '0', 10);
-        if (z < 50) return false;
+        if (isNaN(z) || z < 10) return false;
 
-        var idc = classOf(el);
-        // 明确是弹窗/遮罩的命名，直接判
-        if (/(mask|overlay|modal|dialog|popup|splash|launch|start|welcome|guide)/.test(idc)) return true;
+        // 有输入框的放过（登录 / 评论 / 搜索）
+        if (el.querySelector('input,textarea,select')) return false;
+        // 有播放器的放过
+        if (el.querySelector('video')) return false;
 
-        // 否则：看它是不是「图片 + 倒计时/跳过」那种开屏结构
-        var hasImg = !!el.querySelector('img,picture,canvas');
-        var hasCountdown = /(跳过|\\d+\\s*s|倒计时)/.test(el.textContent || '');
-        return hasImg && hasCountdown;
+        var name = idc(el);
+        // 名字里明确是广告 / 开屏 / 遮罩
+        if (/(advert|adsense|adsbygoogle|adbanner|ad-banner|ad-box|ad-wrap|ad-container|guanggao|popunder|interstitial|splash|launch|openscreen|open-screen|start-?ad|boot-?ad|kaiping|startpage|welcome-?ad|guide-?ad|mask|overlay)/.test(name)) {
+          return true;
+        }
+
+        // 结构特征：几乎铺满 + 含图片或纯文字层 + 有跳过/倒计时/关闭字样
+        var r = el.getBoundingClientRect();
+        var w = window.innerWidth, h = window.innerHeight;
+        if (r.width < w * 0.8 || r.height < h * 0.8) return false;
+        var t = text(el);
+        var hasSkip = /(跳过|跳過|关闭|关闭广告|skip|close|\\d+\\s*s\\b)/i.test(t);
+        var hasMedia = !!el.querySelector('img,picture,canvas,iframe');
+        return hasSkip || hasMedia;
       }
 
-      // 6) 清理
+      // 4) 在给定的广告层里找关闭按钮并点掉（只在这个子树里找，范围很小）
+      function clickSkipInside(el) {
+        var cand = el.querySelectorAll('div,span,a,button,i,em,p');
+        var LIMIT = Math.min(cand.length, 60);   // 硬上限，绝不无限扫
+        for (var i = 0; i < LIMIT; i++) {
+          var n = cand[i];
+          var t = (n.textContent || '').trim();
+          if (!t || t.length > 10) continue;
+          if (!/^(跳过|跳过广告|跳過|关闭|关闭广告|×|✕|x|X|skip|skip ad|close)$/.test(t)) continue;
+          try { n.click(); } catch (e) {}
+          return true;
+        }
+        return false;
+      }
+
+      // 5) 主清理：只看 body 的第一层
       function sweep() {
-        // 明确广告位
-        try {
-          document.querySelectorAll(AD_SEL).forEach(function (el) { el.remove(); });
-        } catch (e) {}
-
-        // 广告域名资源
-        try {
-          document.querySelectorAll('iframe,script,img').forEach(function (el) {
-            var src = (el.src || el.getAttribute('data-src') || '').toLowerCase();
-            if (!src) return;
-            for (var i = 0; i < HOSTS.length; i++) {
-              if (src.indexOf(HOSTS[i]) >= 0) { el.remove(); return; }
+        if (!document.body) return;
+        var kids = document.body.children;
+        // 倒序遍历，删元素不会打乱未处理的索引
+        for (var i = kids.length - 1; i >= 0; i--) {
+          var el = kids[i];
+          if (!el || el[HIT]) continue;
+          try {
+            if (isAdLayer(el)) {
+              clickSkipInside(el);
+              el.remove();
+            } else {
+              el[HIT] = 1;    // 判过了就不再算
             }
-          });
-        } catch (e) {}
+          } catch (e) {}
+        }
 
-        // 全屏遮罩
+        // 顺手清掉来自广告域的 iframe/script/img（一次 querySelectorAll，范围可控）
         try {
-          var kids = document.body ? document.body.children : [];
-          for (var i = 0; i < kids.length; i++) {
-            if (looksLikeOverlay(kids[i])) {
-              try { kids[i].remove(); } catch (e) {}
-            }
-          }
+          var junk = document.querySelectorAll(
+            'iframe[src*="doubleclick" i],iframe[src*="googlesyndication" i],' +
+            'script[src*="popads" i],script[src*="propellerads" i],' +
+            'img[src*="adsterra" i],img[src*="exoclick" i]'
+          );
+          for (var k = 0; k < junk.length; k++) { junk[k].remove(); }
         } catch (e) {}
-
-        // 跳过按钮
-        clickSkip();
       }
 
-      // 7) 前 6 秒高频扫（开屏广告就在这段时间），之后降到 1.5 秒
+      // 6) 前 8 秒 300ms 一次（开屏弹窗都在这个窗口），之后降到 2 秒
       sweep();
       var fast = setInterval(function () {
         sweep();
-        if (Date.now() - START > 6000) {
+        if (Date.now() - START > 8000) {
           clearInterval(fast);
-          setInterval(sweep, 1500);
+          setInterval(sweep, 2000);
         }
-      }, 120);
+      }, 300);
 
-      // 8) DOM 变动立刻扫
+      // 7) DOM 变动触发（去抖 200ms，避免频繁回调）
       try {
         var pending = false;
         new MutationObserver(function () {
           if (pending) return;
           pending = true;
-          setTimeout(function () { pending = false; sweep(); }, 60);
-        }).observe(document.documentElement, { childList: true, subtree: true });
+          setTimeout(function () { pending = false; sweep(); }, 200);
+        }).observe(document.body || document.documentElement, { childList: true });
       } catch (e) {}
     })();
     """
