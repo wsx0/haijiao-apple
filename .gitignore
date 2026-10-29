@@ -1,0 +1,12 @@
+# ???
+ios/*.xcodeproj/
+build/
+dist/
+*.ipa
+*.xcarchive
+
+# ??
+.auth/
+assets/*.js
+node_modules/
+.DS_Store
