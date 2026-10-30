@@ -167,7 +167,13 @@ function matchesSel(el, sel) {
 }
 
 class Style {
-  constructor(o) { this.position = 'static'; this.zIndex = 'auto'; this.display = 'block'; this.visibility = 'visible'; Object.assign(this, o || {}); }
+  constructor(o) {
+    this.position = 'static'; this.zIndex = 'auto'; this.display = 'block'; this.visibility = 'visible';
+    this.overflowY = 'visible'; this.height = 'auto'; this.maxHeight = 'none'; this._props = {};
+    Object.assign(this, o || {});
+  }
+  setProperty(k, v) { this[k.replace(/-([a-z])/g, (m, c) => c.toUpperCase())] = v; this._props[k] = v; }
+  getPropertyValue(k) { return this._props[k] || ''; }
 }
 
 class El {
@@ -179,6 +185,8 @@ class El {
     this.className = o.cls || '';
     this.style = new Style(o.style);
     this._rect = o.rect || { left: 0, top: 0, width: 0, height: 0 };
+    this.scrollHeight = o.scrollHeight || this._rect.height;
+    this.clientHeight = o.clientHeight || this._rect.height;
     this._text = o.text || '';
     this._attrs = Object.assign({}, o.attrs || {});
     this._children = [];
@@ -562,6 +570,24 @@ function splash(world, opts) {
   ok('S17 不再往布局里塞 spacer', !w.document.getElementById('__hj_spacer'));
   const d = w.sandbox.window.__hj_diag();
   ok('S17 __hj_diag 可用', !!d && typeof d.innerHeight === 'number' && ('spacer' in d), JSON.stringify(d).slice(0, 110));
+})();
+(function S18() {
+  const w = runSite();
+  // 首页那种「固定高度 + overflow hidden、内容比自身高」的容器：必须被放开
+  const app = new El('div', { id: 'app' });
+  w.body.appendChild(app);
+  const box = new El('div', {
+    cls: 'indexbox',
+    clientHeight: 844,
+    scrollHeight: 3800,
+    style: { overflowY: 'hidden', height: '844px' },
+    rect: { left: 0, top: 0, width: W, height: 844 },
+  });
+  app.appendChild(box);
+  w.fireWin('load');
+  w.frame(60);                        // 1.8s，覆盖 400/1500 两个时间点
+  ok('S18 裁剪容器被放开高度', box.style.height === 'auto', 'height=' + box.style.height);
+  ok('S18 裁剪容器 overflow 放开', box.style.overflowY === 'visible', 'ov=' + box.style.overflowY);
 })();
 // ───────────────────────── 5. documentEnd：收尾清理 ─────────────────────────
 (function E1() {

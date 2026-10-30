@@ -364,6 +364,22 @@ enum AdBlock {
 
         sweepPrecise();   // 只扫一次；之后完全靠 MutationObserver 事件驱动，空闲时零开销
 
+        // 首页解链：load 后连跑三次，覆盖「首屏异步渲染完才出现溢出」的情况
+        try {
+          var runFree = function () { freeScroller(); };
+          if (document.readyState === 'complete') {
+            runFree();
+            setTimeout(runFree, 400);
+            setTimeout(runFree, 1500);
+          } else {
+            window.addEventListener('load', function () {
+              runFree();
+              setTimeout(runFree, 400);
+              setTimeout(runFree, 1500);
+            }, { once: true });
+          }
+        } catch (e) {}
+
       }
 
       // 首屏「撑高」已移除：实测它把文档拉到 2.2 屏高，内容只有一屏时用户划的是空白区，
@@ -386,6 +402,44 @@ enum AdBlock {
         } catch (e) {}
         return out.join(' | ');
       }
+
+      // 「首页内容被裁、文档不可滚」的通用解链（真机证据：进帖子详情就能滚，说明滚动本身没问题，
+      // 是首页某个固定高度容器把内容裁了：sh == ch == 873）。
+      // 只挑「内容比自身高 40px 以上、而且 overflow 会裁掉它」的容器，把高度与溢出放开。
+      // 详情页那种本来就正常的容器，scrollHeight 不会超，所以不会被碰。
+      function freeScroller() {
+        try {
+          var app = document.getElementById('app');
+          if (!app) return;
+          var checked = 0, fixed = 0;
+          (function walk(node) {
+            var kids = node.children;
+            for (var i = 0; i < kids.length; i++) {
+              if (checked > 4000 || fixed >= 12) return;
+              var el = kids[i];
+              checked++;
+              try {
+                if (el.clientHeight >= 120 && el.scrollHeight > el.clientHeight + 40) {
+                  var cs = getComputedStyle(el);
+                  var oy = cs.overflowY;
+                  if (oy === 'hidden' || oy === 'visible' || oy === 'clip') {
+                    el.style.setProperty('height', 'auto', 'important');
+                    el.style.setProperty('max-height', 'none', 'important');
+                    el.style.setProperty('overflow-y', 'visible', 'important');
+                    fixed++;
+                    if (LOG.length < 30) {
+                      LOG.push('free:' + String(el.className || el.id || el.tagName).split(/\\s+/)[0].slice(0, 24));
+                    }
+                  }
+                }
+              } catch (e) {}
+              walk(el);
+            }
+          })(app);
+        } catch (e) {}
+      }
+
+      window.__hj_free = freeScroller;
 
       window.__hj_diag = function () {
         try {
