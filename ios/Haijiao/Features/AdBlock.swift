@@ -200,7 +200,8 @@ enum AdBlock {
         if (!btn) { try { btn = dlg.querySelector('.van-dialog__footer button:last-child'); } catch (e) {} }
         if (!btn) { try { btn = dlg.querySelector('button'); } catch (e) {} }
         if (btn) { try { btn.click(); } catch (e) {} }
-        setTimeout(function () { rm(dlg, 'dialog'); sweepOverlays(); unlockBody(); }, 80);
+        // 只摘自己的节点并解锁；遮罩留给 300ms 的 sweep 统一判（这里清会误伤链式弹窗的下一层遮罩）
+        setTimeout(function () { rm(dlg, 'dialog'); var m = hasVisibleModal(); unlockBody(m); }, 80);
       }
 
       // 只看「新增节点」，命中就处理
@@ -210,14 +211,13 @@ enum AdBlock {
           var cls = clsOf(n);
           if (/\\b(topbanmer|addbox)\\b/.test(cls)) { rm(n, 'box'); return; }
           if (/luodiconfirm|luodisconfirm/.test(cls)) { clickConfirm(n); return; }
-          // 任何遮罩 / 弹窗类节点出现，120ms 后复查一次遮罩配对（兄弟节点这时才插完）
-          if (/^van-overlay/.test(cls) || /van-(dialog|popup)/.test(cls)) {
-            setTimeout(function () { sweepOverlays(); unlockBody(); }, 120);
-            return;
-          }
-          if (/^van-overlay/.test(cls)) {
-            var next = n.nextElementSibling;
-            if (next && /luodiconfirm|luodisconfirm/.test(clsOf(next))) rm(n, 'overlay');
+          // 任何遮罩 / 弹窗类节点出现，120ms 后复查一次（这时链式弹窗/兄弟节点都插完了）
+          if (/^van-overlay/.test(cls) || /van-(dialog|popup|action-sheet)/.test(cls)) {
+            setTimeout(function () {
+              var m = hasVisibleModal();
+              sweepOverlays(m);
+              unlockBody(m);
+            }, 120);
           }
         } catch (e) {}
       }
@@ -230,7 +230,8 @@ enum AdBlock {
       // 只用 querySelector 判断存在性的话，永远都会以为「有弹窗」，锁就永远解不开 —— 1.0.7/1.0.8 就是栽在这。
       function hasVisibleModal() {
         try {
-          var mods = document.querySelectorAll('.van-dialog, .van-popup');
+          var vh = window.innerHeight || 800;
+          var mods = document.querySelectorAll('.van-dialog, .van-popup, .van-action-sheet');
           for (var i = 0; i < mods.length; i++) {
             var el = mods[i], cs = null;
             try { cs = getComputedStyle(el); } catch (e) {}
@@ -238,17 +239,28 @@ enum AdBlock {
             if (cs.display === 'none' || cs.visibility === 'hidden') continue;
             if (parseFloat(cs.opacity || '1') < 0.05) continue;
             var r = el.getBoundingClientRect();
-            if (r.width > 8 && r.height > 8) return true;
+            if (r.width <= 8 || r.height <= 8) continue;
+            // dialog / action-sheet 天生就是模态；.van-popup 还可能是「客服悬浮面板」「筛选下拉」
+            // 这种小东西 —— 把它算成模态的话，页面的锁就永远解不开，又回到「划不动」。
+            var isDialog = /van-dialog|van-action-sheet/.test(String(el.className || '')) ||
+                           el.getAttribute('role') === 'dialog';
+            if (!isDialog && r.height < vh * 0.15) continue;
+            return true;
           }
         } catch (e) {}
         return false;
       }
 
-      // 孤儿遮罩：vant 的 .van-overlay 是全屏的，pointer-events 默认 auto。
-      // 弹窗被我们删掉之后，遮罩会继续盖在上面吃触摸 —— 表现就是「等一会才能划动」
-      // （等到站点自己把遮罩收掉）。所以每次扫都清一遍：相邻没有「可见」弹窗的直接摘掉。
-      function sweepOverlays() {
+      // 孤儿遮罩：vant 的 .van-overlay 是全屏、pointer-events 默认 auto。
+      // 弹窗被我们删掉后，遮罩继续盖着吃触摸 —— 表现就是「等一会才能划动」。
+      //
+      // 判定用「全局」而不是「相邻兄弟」：vant 的 overlay 和 dialog 在不同版本里
+      // 未必紧挨着（可能被 wrapper 隔开），按兄弟判会误删正常模态的遮罩 —— 那会让背景点穿。
+      // 规则只有一条：**有可见弹窗容器就全部保留，没有就全部清掉**。
+      function sweepOverlays(modalVisible) {
         try {
+          var modal = (typeof modalVisible === 'boolean') ? modalVisible : hasVisibleModal();
+          if (modal) return;
           var ovs = document.querySelectorAll('.van-overlay, .van-mask');
           for (var i = 0; i < ovs.length; i++) {
             var ov = ovs[i];
@@ -256,19 +268,6 @@ enum AdBlock {
             var cs = null;
             try { cs = getComputedStyle(ov); } catch (e) {}
             if (cs && (cs.display === 'none' || cs.visibility === 'hidden')) continue;
-            var keep = false;
-            var sibs = [ov.nextElementSibling, ov.previousElementSibling];
-            for (var k = 0; k < sibs.length; k++) {
-              var sib = sibs[k];
-              if (!sib) continue;
-              if (!/van-dialog|van-popup/.test(String(sib.className || ''))) continue;
-              var scs = null;
-              try { scs = getComputedStyle(sib); } catch (e) {}
-              if (scs && (scs.display === 'none' || scs.visibility === 'hidden')) continue;
-              var r = sib.getBoundingClientRect();
-              if (r.width > 8 && r.height > 8) { keep = true; break; }
-            }
-            if (keep) continue;
             try { ov.style.pointerEvents = 'none'; } catch (e) {}
             try { ov.remove(); } catch (e) {}
             if (LOG.length < 30) LOG.push('overlay');
@@ -287,7 +286,7 @@ enum AdBlock {
         return true;
       }
 
-      function unlockBody() {
+      function unlockBody(modalVisible) {
         try {
           var b = document.body, h = document.documentElement;
           // 平时零开销：只有真的被锁才往下走
@@ -295,20 +294,15 @@ enum AdBlock {
                        String((h && h.className) || '').indexOf('van-overflow-hidden') >= 0 ||
                        !!(b && b.style && (b.style.overflow === 'hidden' || b.style.overflowY === 'hidden'));
           if (!locked) return;
-          if (hasVisibleModal()) return;        // 真弹窗在，锁是合理的
+          var modal = (typeof modalVisible === 'boolean') ? modalVisible : hasVisibleModal();
+          if (modal) return;                    // 真弹窗在，锁是合理的
           stripLock(b, 'body');
           stripLock(h, 'html');
           if (b && b.style) {
             if (b.style.overflow) b.style.overflow = '';
             if (b.style.overflowY) b.style.overflowY = '';
           }
-          var stray = document.querySelectorAll('.van-overlay');
-          for (var i = 0; i < stray.length; i++) {
-            var ov = stray[i];
-            var next = ov.nextElementSibling;
-            var orphan = !next || !/van-dialog|van-popup/.test(String(next.className || ''));
-            if (orphan) { try { ov.remove(); } catch (e) {} }
-          }
+          // 遮罩的清理统一交给 sweepOverlays()：这里再清一次会和它口径不一致（按兄弟判会误删正常模态遮罩）
         } catch (e) {}
       }
 
@@ -322,8 +316,10 @@ enum AdBlock {
           var dlg = document.querySelectorAll(DIALOG);
           for (var j = 0; j < dlg.length; j++) clickConfirm(dlg[j]);
         } catch (e) {}
-        sweepOverlays();
-        unlockBody();
+        // 先点掉弹窗，再判定一次「现在还有没有可见弹窗」，两处清理共用同一个结论
+        var modal = hasVisibleModal();
+        sweepOverlays(modal);
+        unlockBody(modal);
       }
 
       var mo = null;
@@ -370,13 +366,11 @@ enum AdBlock {
     // MARK: - 第 4 层：收尾清理（documentEnd）
 
     /// 轻量收尾：封 window.open（弹窗广告主要来源）、过滤广告 alert、
-    /// 清掉广告域的 iframe/script，并每 1.5 秒用精确选择器再扫一次（SPA 换页会重插节点）。
+    /// 清掉广告域的 iframe/script，并按递减节奏用精确选择器再扫（SPA 换页会重插节点）。
     static let js = """
     (function () {
       if (window.__hj_adblock) return;
       window.__hj_adblock = true;
-
-      var HOSTS = \(jsArray(blockedHosts));
 
       // 1) 封 window.open
       try { window.open = function () { return null; }; } catch (e) {}
@@ -400,16 +394,21 @@ enum AdBlock {
         } catch (e) {}
       }
 
-      // 4) 每 2.5 秒兜底一次（精确选择器 + 广告节点），SPA 换页后也管用
+      // 4) 每 1.2 秒兜底一次（精确选择器 + 广告节点），SPA 换页后也管用
       function tick() {
         dropAdNodes();
         if (window.__hj_strip_now) { try { window.__hj_strip_now(); } catch (e) {} }
       }
       // 延后 600ms 启动：documentEnd 正好是站点渲染首屏的时刻，别在这时候抢主线程。
-      setTimeout(function () {
+      // 节奏：前 16 轮 1.2 秒一次（首屏 + 换页最需要），之后降到 5 秒一次 —— 永久高频没有意义，
+      // 每次都要在全文档上跑属性选择器，纯烧 WebContent 主线程。
+      var rounds = 0;
+      function loop() {
         tick();
-        setInterval(tick, 2500);
-      }, 600);
+        var gap = (rounds++ < 16) ? 1200 : 5000;
+        setTimeout(loop, gap);
+      }
+      setTimeout(loop, 600);
 
       // 5) body 直接子节点变动就清一次（去抖 300ms；不开 subtree，避免站点首屏把回调打爆）
       try {

@@ -529,6 +529,32 @@ function splash(world, opts) {
   ok('S14 有相邻可见弹窗时遮罩保留', ov.parentNode === w.body,
      'ov=' + (ov.parentNode ? 'kept' : 'removed'));
 })();
+(function S15() {
+  const w = runSite();
+  // 遮罩与「可见弹窗」不相邻（中间夹了 wrapper）：按兄弟判的老逻辑会误删遮罩 → 背景点穿。
+  // 新逻辑是全局判定，遮罩必须保留。
+  const ov = new El('div', { cls: 'van-overlay', rect: { left: 0, top: 0, width: W, height: H } });
+  w.body.appendChild(ov);
+  const wrap = new El('div', { cls: 'dialog-wrapper' });
+  const dlg = new El('div', { cls: 'van-dialog login', rect: { left: 29, top: 200, width: 333, height: 400 } });
+  wrap.appendChild(dlg);
+  w.body.appendChild(wrap);
+  w.frame(14);
+  ok('S15 弹窗不在相邻位置时遮罩也保留', ov.parentNode === w.body,
+     'ov=' + (ov.parentNode ? 'kept' : 'removed') + ' log=' + JSON.stringify(w.sandbox.window.__hj_strip_log));
+})();
+(function S16() {
+  const w = runSite();
+  // 客服悬浮面板那种小尺寸 .van-popup（高 60px）：不该算模态，否则锁永远解不开
+  const tiny = new El('div', { cls: 'van-popup service-panel', rect: { left: 300, top: 700, width: 80, height: 60 } });
+  w.body.appendChild(tiny);
+  w.body.className = 'van-overflow-hidden';
+  const ov = new El('div', { cls: 'van-overlay', rect: { left: 0, top: 0, width: W, height: H } });
+  w.body.appendChild(ov);
+  w.frame(14);
+  ok('S16 小面板不阻止解锁', w.body.className.indexOf('van-overflow-hidden') < 0,
+     'class="' + w.body.className + '"');
+})();
 // ───────────────────────── 5. documentEnd：收尾清理 ─────────────────────────
 (function E1() {
   const w = runEnd();
