@@ -222,7 +222,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
                     Int(sv.contentSize.width), Int(sv.contentSize.height),
                     sv.contentOffset.y,
                     sv.isScrollEnabled ? "1" : "0",
-                    web.zoomScale)
+                    sv.zoomScale)
                 self.parent.diag = line
                 web.evaluateJavaScript(
                     "(function(){try{var d=window.__hj_diag?window.__hj_diag():{};" +
