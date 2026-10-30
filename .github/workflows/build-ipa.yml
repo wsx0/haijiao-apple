@@ -18,8 +18,13 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-14 池在 2026-10-31 连续两次 1 秒内被系统取消（job 连一个 step 都没跑），换 15 的池
+    runs-on: macos-15
     timeout-minutes: 30
+    # 同一时间只留一个构建，避免队列里互相顶掉
+    concurrency:
+      group: build-ipa
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
