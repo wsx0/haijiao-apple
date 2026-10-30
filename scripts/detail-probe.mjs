@@ -37,6 +37,12 @@ async function main() {
   const page = await ctx.newPage();
   for (const p of BLOCK) await page.route(p, r => r.abort());
 
+  // 0) 必须先落到站点上，否则页面还是 about:blank，相对路径 /api/... 解析不了
+  try {
+    await page.goto(HOME, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await page.waitForTimeout(1500);
+  } catch (e) { console.log('首页打开失败:', e.message); }
+
   // 1) 直接打接口拿一条真实帖子（不走 UI，稳）
   let sample = null;
   try {
