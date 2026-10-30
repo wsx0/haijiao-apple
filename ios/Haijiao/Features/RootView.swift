@@ -105,8 +105,8 @@ struct RootView: View {
             rulesReady = true
         }
         .task {
-            // 12 秒后自动收起诊断面板
-            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            // 20 秒后自动收起诊断面板（够看清启动阶段的变化）
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
             diagVisible = false
         }
         // 双击隐藏/显示底部导航栏 —— 由 WKWebView 上的 UITapGestureRecognizer 触发

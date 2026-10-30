@@ -359,25 +359,8 @@ enum AdBlock {
 
       }
 
-      // ── 底层兜底：首屏撑高 ────────────────────────────────────────────
-      // 站点首屏的根容器是 height: <视口高>，DOM 还没长出来时 UIScrollView 的 contentSize
-      // 就等于视口高度 —— 此时手指怎么划都不会动（观感就是「等一会才能划」）。
-      // 这里在前几秒把文档撑到 2.2 屏高，让滚动立刻可用；load 后 4 秒撤掉，不影响真实布局。
-      (function () {
-        try {
-          var st = document.createElement('style');
-          st.id = '__hj_spacer';
-          st.textContent = 'html,body{min-height:220vh !important;}';
-          (document.head || document.documentElement).appendChild(st);
-          var drop = function () {
-            try { var s = document.getElementById('__hj_spacer'); if (s) s.remove(); } catch (e) {}
-          };
-          if (document.readyState === 'complete') setTimeout(drop, 1200);
-          else window.addEventListener('load', function () { setTimeout(drop, 4000); }, { once: true });
-          setTimeout(drop, 12000);   // 最后一道：无论如何 12 秒后撤掉
-        } catch (e) {}
-      })();
-
+      // 首屏「撑高」已移除：实测它把文档拉到 2.2 屏高，内容只有一屏时用户划的是空白区，
+      // 反而制造了「划不动」的观感，而且要等 12 秒兜底定时器撤销才恢复。别再往布局里塞东西。
       window.__hj_diag = function () {
         try {
           var se = document.scrollingElement || document.documentElement;
@@ -388,7 +371,7 @@ enum AdBlock {
             bodyClass: String(document.body.className),
             bodyOverflow: getComputedStyle(document.body).overflowY,
             htmlOverflow: getComputedStyle(document.documentElement).overflowY,
-            spacer: !!document.getElementById('__hj_spacer'),
+            spacer: 0,
             overlays: document.querySelectorAll('.van-overlay').length,
             modalVisible: hasVisibleModal(),
             log: LOG.slice(-10),

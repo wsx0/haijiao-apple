@@ -559,10 +559,7 @@ function splash(world, opts) {
 })();
 (function S17() {
   const w = runSite();
-  ok('S17 首屏 spacer 注入', !!w.document.getElementById('__hj_spacer'));
-  w.fireWin('load');
-  w.frame(140);                       // 4.2s
-  ok('S17 load 后 4 秒撤掉 spacer', !w.document.getElementById('__hj_spacer'));
+  ok('S17 不再往布局里塞 spacer', !w.document.getElementById('__hj_spacer'));
   const d = w.sandbox.window.__hj_diag();
   ok('S17 __hj_diag 可用', !!d && typeof d.innerHeight === 'number' && ('spacer' in d), JSON.stringify(d).slice(0, 110));
 })();
