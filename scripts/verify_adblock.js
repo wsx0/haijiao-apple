@@ -187,6 +187,18 @@ class El {
     this.baseVal = undefined;
   }
   get parentElement() { return this.parentNode && this.parentNode.nodeType === 1 ? this.parentNode : null; }
+  get nextElementSibling() {
+    const p = this.parentNode; if (!p) return null;
+    const i = p._children.indexOf(this);
+    for (let k = i + 1; k < p._children.length; k++) if (p._children[k].nodeType === 1) return p._children[k];
+    return null;
+  }
+  get previousElementSibling() {
+    const p = this.parentNode; if (!p) return null;
+    const i = p._children.indexOf(this);
+    for (let k = i - 1; k >= 0; k--) if (p._children[k].nodeType === 1) return p._children[k];
+    return null;
+  }
   get children() { return this._children; }
   appendChild(c) {
     c.parentNode = this; this._children.push(c);
@@ -467,7 +479,7 @@ function splash(world, opts) {
   w.body.className = 'van-overflow-hidden';
   const ov = new El('div', { cls: 'van-overlay' });
   w.body.appendChild(ov);
-  const dlg = new El('div', { cls: 'van-dialog login' });
+  const dlg = new El('div', { cls: 'van-dialog login', rect: { left: 29, top: 200, width: 333, height: 400 } });
   dlg.appendChild(new El('input', { rect: { left: 40, top: 400, width: 300, height: 40 } }));
   w.body.appendChild(dlg);
   w.frame(14);
@@ -495,6 +507,27 @@ function splash(world, opts) {
   w.frame(25);
   ok('S12 可见弹窗时保留滚动锁', w.body.className.indexOf('van-overflow-hidden') >= 0,
      'class="' + w.body.className + '"');
+})();
+(function S13() {
+  const w = runSite();
+  // 弹窗被删之后残留的全屏遮罩：会一直吃触摸，必须摘掉
+  const ov = new El('div', { cls: 'van-overlay', rect: { left: 0, top: 0, width: W, height: H } });
+  w.body.appendChild(ov);
+  w.frame(14);                     // 420ms，覆盖一个 300ms 兜底
+  ok('S13 孤儿遮罩被摘掉', ov.parentNode === null,
+     JSON.stringify(w.sandbox.window.__hj_strip_log));
+})();
+
+(function S14() {
+  const w = runSite();
+  // 正常的模态：遮罩 + 相邻的可见弹窗，遮罩必须留着（不然点穿背景）
+  const ov = new El('div', { cls: 'van-overlay', rect: { left: 0, top: 0, width: W, height: H } });
+  w.body.appendChild(ov);
+  const dlg = new El('div', { cls: 'van-popup login', rect: { left: 0, top: 600, width: W, height: 244 } });
+  w.body.appendChild(dlg);
+  w.frame(14);
+  ok('S14 有相邻可见弹窗时遮罩保留', ov.parentNode === w.body,
+     'ov=' + (ov.parentNode ? 'kept' : 'removed'));
 })();
 // ───────────────────────── 5. documentEnd：收尾清理 ─────────────────────────
 (function E1() {

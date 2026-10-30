@@ -200,7 +200,7 @@ enum AdBlock {
         if (!btn) { try { btn = dlg.querySelector('.van-dialog__footer button:last-child'); } catch (e) {} }
         if (!btn) { try { btn = dlg.querySelector('button'); } catch (e) {} }
         if (btn) { try { btn.click(); } catch (e) {} }
-        setTimeout(function () { rm(dlg, 'dialog'); unlockBody(); }, 80);
+        setTimeout(function () { rm(dlg, 'dialog'); sweepOverlays(); unlockBody(); }, 80);
       }
 
       // 只看「新增节点」，命中就处理
@@ -210,6 +210,11 @@ enum AdBlock {
           var cls = clsOf(n);
           if (/\\b(topbanmer|addbox)\\b/.test(cls)) { rm(n, 'box'); return; }
           if (/luodiconfirm|luodisconfirm/.test(cls)) { clickConfirm(n); return; }
+          // 任何遮罩 / 弹窗类节点出现，120ms 后复查一次遮罩配对（兄弟节点这时才插完）
+          if (/^van-overlay/.test(cls) || /van-(dialog|popup)/.test(cls)) {
+            setTimeout(function () { sweepOverlays(); unlockBody(); }, 120);
+            return;
+          }
           if (/^van-overlay/.test(cls)) {
             var next = n.nextElementSibling;
             if (next && /luodiconfirm|luodisconfirm/.test(clsOf(next))) rm(n, 'overlay');
@@ -237,6 +242,38 @@ enum AdBlock {
           }
         } catch (e) {}
         return false;
+      }
+
+      // 孤儿遮罩：vant 的 .van-overlay 是全屏的，pointer-events 默认 auto。
+      // 弹窗被我们删掉之后，遮罩会继续盖在上面吃触摸 —— 表现就是「等一会才能划动」
+      // （等到站点自己把遮罩收掉）。所以每次扫都清一遍：相邻没有「可见」弹窗的直接摘掉。
+      function sweepOverlays() {
+        try {
+          var ovs = document.querySelectorAll('.van-overlay, .van-mask');
+          for (var i = 0; i < ovs.length; i++) {
+            var ov = ovs[i];
+            if (!ov.parentNode) continue;
+            var cs = null;
+            try { cs = getComputedStyle(ov); } catch (e) {}
+            if (cs && (cs.display === 'none' || cs.visibility === 'hidden')) continue;
+            var keep = false;
+            var sibs = [ov.nextElementSibling, ov.previousElementSibling];
+            for (var k = 0; k < sibs.length; k++) {
+              var sib = sibs[k];
+              if (!sib) continue;
+              if (!/van-dialog|van-popup/.test(String(sib.className || ''))) continue;
+              var scs = null;
+              try { scs = getComputedStyle(sib); } catch (e) {}
+              if (scs && (scs.display === 'none' || scs.visibility === 'hidden')) continue;
+              var r = sib.getBoundingClientRect();
+              if (r.width > 8 && r.height > 8) { keep = true; break; }
+            }
+            if (keep) continue;
+            try { ov.style.pointerEvents = 'none'; } catch (e) {}
+            try { ov.remove(); } catch (e) {}
+            if (LOG.length < 30) LOG.push('overlay');
+          }
+        } catch (e) {}
       }
 
       function stripLock(el, tag) {
@@ -285,6 +322,7 @@ enum AdBlock {
           var dlg = document.querySelectorAll(DIALOG);
           for (var j = 0; j < dlg.length; j++) clickConfirm(dlg[j]);
         } catch (e) {}
+        sweepOverlays();
         unlockBody();
       }
 
@@ -319,8 +357,8 @@ enum AdBlock {
         var n = 0;
         var t = setInterval(function () {
           sweepPrecise();
-          if (++n >= 10) { try { clearInterval(t); } catch (e) {} }
-        }, 600);
+          if (++n >= 15) { try { clearInterval(t); } catch (e) {} }
+        }, 300);
       }
 
       window.__hj_strip_now = sweepPrecise;

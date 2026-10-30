@@ -153,3 +153,16 @@ node scripts/verify_adblock.js
 
 诊断脚本 `scripts/scroll-probe.mjs`：注入 App 同源的 `siteJS` 后，实测
 `body/html` 的锁、真实滚动容器、`scrollTo` 是否生效、手动解锁后是否能滚。
+
+### 1.0.11：修「等一会才能划动」
+
+1.0.10 的解锁只在「body 真的被锁」时才跑，而**孤儿遮罩**（`.van-overlay`，全屏、`pointer-events: auto`）
+是另一条独立路径：我们把 luodi 弹窗节点删掉后，vant 的遮罩会留在原地继续吃触摸，
+直到站点自己把它收掉 —— 表现就是「等一会儿才能划」。
+
+1.0.11：
+- 新增 `sweepOverlays()`：每次扫描都把「相邻没有可见 `.van-dialog`/`.van-popup`」的
+  `.van-overlay` / `.van-mask` 直接摘掉（不再绑在 `unlockBody` 的锁分支里）
+- 遮罩/弹窗类节点一出现，120ms 后复查一次配对（兄弟节点这时才插完）
+- 兜底间隔 600ms → **300ms**（15 次，约 4.5 秒），等待窗口砍半
+- 回归补 S13（孤儿遮罩要摘）/ S14（有相邻可见弹窗要留）
