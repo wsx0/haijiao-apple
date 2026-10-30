@@ -19,7 +19,7 @@ enum AdBlock {
 
     /// 排查闪退用的总开关：改成 false 重编 = 不注入启动期杀手，
     /// 只保留「网络规则 + CSS + 常驻清理」三层（那三层都不会强制布局）。
-    static let splashKillerEnabled = false
+    static let splashKillerEnabled = true
 
     // MARK: - 第 1 层：网络层拦截
 
