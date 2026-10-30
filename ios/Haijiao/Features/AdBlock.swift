@@ -82,7 +82,8 @@ enum AdBlock {
     /// 也丢不掉域名/路径拦截。编译失败的那份直接跳过，不影响主流程。
     static func makeRuleLists() async -> [WKContentRuleList] {
         var lists: [WKContentRuleList] = []
-        let store = WKContentRuleListStore.default()
+        // WKContentRuleListStore.default() 返回的是 optional，先解开
+        guard let store = WKContentRuleListStore.default() else { return lists }
 
         let hostRules = blockedHosts.map { host in
             #"{"trigger":{"url-filter":".*","if-domain":["*\#(host)"]},"action":{"type":"block"}}"#
