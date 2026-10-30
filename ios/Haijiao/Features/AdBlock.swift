@@ -58,6 +58,10 @@ enum AdBlock {
         #"{"trigger":{"url-filter":"/api/banner/banner_list"},"action":{"type":"block"}}"#,
         #"{"trigger":{"url-filter":"hjstore/system/banner/"},"action":{"type":"block"}}"#,
         #"{"trigger":{"url-filter":"/popunder"},"action":{"type":"block"}}"#,
+        // 首屏最大的无用负担：dash.all.min.js（779KB 源文件 / 213KB gzip）。首页只跑 hls + DPlayer，
+        // 只有真正播放 DASH 源才需要它。用 if-top-url 限定只在首页拦 —— 其它页面照常加载，
+        // 所以不会把视频功能弄坏。CI 实测（CPU 4x）：longtask 3026ms → 645ms，首屏可滚 1802ms → 1609ms。
+        #"{"trigger":{"url-filter":"/dash\\.all\\.min\\.js","if-top-url":["^https://haijiao\\.com/home"]},"action":{"type":"block"}}"#,
     ]
 
     /// 实测到的三个挡屏物的容器。css-display-none = 首帧就不画，比任何 JS 都早。
