@@ -31,6 +31,39 @@ enum TopicAPI {
         return Data(base64Encoded: trimmed, options: .ignoreUnknownCharacters)
     }
 
+    enum APIError: LocalizedError {
+        case http(Int)
+        case envelope(String)
+        case payload(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .http(let code):
+                return "服务器返回 \(code)"
+            case .envelope(let head):
+                return "响应不是预期信封：" + head
+            case .payload(let head):
+                return "数据格式异常：" + head
+            }
+        }
+    }
+
+    /// 把解出来的 JSON 手工映射成模型。任何字段类型异常都只是丢掉那个字段，
+    /// 不会像 Codable 那样让整页报「格式不正确」。
+    static func parsePage(_ data: Data) throws -> TopicPage {
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw APIError.payload(String(data: data.prefix(80), encoding: .utf8) ?? "(非 UTF-8)")
+        }
+        let infoDict = root["page"] as? [String: Any]
+        let info = infoDict.map {
+            PageInfo(page: JSON.int($0["page"]),
+                     limit: JSON.int($0["limit"]),
+                     total: JSON.int($0["total"]))
+        }
+        let list = (root["results"] as? [[String: Any]]) ?? []
+        return TopicPage(page: info, results: list.map { Topic(dict: $0) })
+    }
+
     static func fetchTopics(page: Int) async throws -> TopicPage {
         guard let url = URL(string: "\(base)/api/topic/hot/topics?page=\(page)") else {
             throw URLError(.badURL)
@@ -46,15 +79,18 @@ enum TopicAPI {
 
         let (data, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
-            throw URLError(.badServerResponse)
+            throw APIError.http(http.statusCode)
         }
-        guard let env = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw URLError(.cannotParseResponse)
+        guard let env = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw APIError.envelope(String(data: data.prefix(80), encoding: .utf8) ?? "(非 UTF-8)")
         }
-        guard let payload = env["data"] as? String, let json = decodePayload(payload) else {
-            throw URLError(.cannotDecodeContentData)
+        guard let payload = env["data"] as? String else {
+            throw APIError.envelope("无 data 字段")
         }
-        return try JSONDecoder().decode(TopicPage.self, from: json)
+        guard let json = decodePayload(payload) else {
+            throw APIError.payload("两层 base64 解码失败")
+        }
+        return try parsePage(json)
     }
 
     /// 详情页（SPA 路由 post/details），点条目时交给内置 WebView 打开

@@ -99,7 +99,7 @@ final class TopicStore: ObservableObject {
         defer { loading = false }
         do {
             let fetched = try await TopicAPI.fetchTopics(page: nextPage)
-            let raw = fetched.results ?? []
+            let raw = fetched.results
             // topicId 缺失的条目会让 Identifiable 的 id 全变 0 → List 身份冲突，直接丢掉
             let items = raw.filter { ($0.topicId ?? 0) > 0 }
             if raw.isEmpty {
@@ -154,8 +154,8 @@ struct TopicRow: View {
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
 
-            if let tags = topic.tags, let first = tags.first?.tagName, !first.isEmpty {
-                Text(tags.compactMap { $0.tagName }.prefix(3).joined(separator: " · "))
+            if let first = topic.tags.first?.tagName, !first.isEmpty {
+                Text(topic.tags.compactMap { $0.tagName }.prefix(3).joined(separator: " · "))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
