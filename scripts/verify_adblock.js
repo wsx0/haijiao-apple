@@ -142,6 +142,7 @@ function matchesSel(el, sel) {
     const s = raw.trim();
     if (!s) return false;
     // 属性选择器：[attr*=value i] / [attr^=value] / [attr=value]
+    if (s.includes(':')) return false;   // :last-child 之类的伪类不在测试范围
     const attrs = [...s.matchAll(/\[([\w-]+)\s*([*^$]?=)\s*["']?([^"'\]]*?)["']?\s*(i?)\]/g)];
     let rest = s.replace(/\[[^\]]*\]/g, '');
     for (const m of attrs) {
@@ -218,6 +219,7 @@ function makeWorld() {
   const clock = { t: 1_000_000 };
   const hits = [];
   const listeners = [];
+  const docListeners = [];
   const rafQ = [];
   const timers = [];
   OBS = []; NEXT_TIMER_ID = 1;
@@ -233,7 +235,7 @@ function makeWorld() {
     readyState: 'loading',
     visibilityState: 'visible',
     createElement: t => new El(t),
-    addEventListener() {},
+    addEventListener(evt, fn) { docListeners.push({ evt, fn }); },
     getElementById: id => (function find(n) {
       for (const c of n._children) { if (c.id === id) return c; const r = find(c); if (r) return r; }
       return null;
@@ -304,8 +306,9 @@ function makeWorld() {
     }
   }
   function touch() { for (const l of listeners) if (/touchstart|pointerdown/.test(l.evt)) l.fn({ type: l.evt }); }
+  function fireDoc(evt) { for (const l of docListeners.slice()) if (l.evt === evt) l.fn({ type: evt }); }
 
-  return { sandbox, document, body, head, html, addHit, frame, touch, clock, hits, win, timers };
+  return { sandbox, document, body, head, html, addHit, frame, touch, fireDoc, clock, hits, win, timers };
 }
 
 function runLaunch() {
@@ -405,6 +408,43 @@ function splash(world, opts) {
      JSON.stringify(w.sandbox.window.__hj_strip_log));
 })();
 
+(function S7() {
+  const w = runSite();
+  // vant 的 confirm 型 dialog：取消键在前、确认键在后 —— 绝不能点错
+  const dlg = new El('div', { cls: 'van-dialog luodiconfirm' });
+  const footer = new El('div', { cls: 'van-dialog__footer' });
+  const cancel = new El('button', { cls: 'van-dialog__cancel', text: '取消' });
+  const confirm = new El('button', { cls: 'van-dialog__confirm', text: '好' });
+  footer.appendChild(cancel); footer.appendChild(confirm);
+  dlg.appendChild(footer);
+  w.body.appendChild(dlg);
+  w.frame(6);
+  ok('S7 只点确认键，不碰取消键', confirm.clicks >= 1 && cancel.clicks === 0,
+     'confirm=' + confirm.clicks + ' cancel=' + cancel.clicks);
+})();
+
+(function S8() {
+  // 模拟 documentStart：body 还没进 DOM，siteJS 先盯 documentElement；
+  // DOMContentLoaded 之后必须重新挂到 body，否则只看得到 html 的直接子节点。
+  const w = makeWorld();
+  const bodyEl = w.body;
+  w.document.body = null;
+  bodyEl.remove();
+  vm.runInContext(site.text, w.sandbox, { filename: 'siteJS' });
+
+  const early = new El('div', { cls: 'topbanmer' });
+  bodyEl.appendChild(early);
+  ok('S8 DOMContentLoaded 之前，body 里的新增不会被误判', early.parentNode === bodyEl);
+
+  w.html.appendChild(bodyEl);
+  w.document.body = bodyEl;
+  w.fireDoc('DOMContentLoaded');
+
+  const late = new El('div', { cls: 'topbanmer' });
+  bodyEl.appendChild(late);
+  ok('S8 body 就位后，新增的 .topbanmer 立即被摘掉', late.parentNode === null,
+     JSON.stringify(w.sandbox.window.__hj_strip_log));
+})();
 // ───────────────────────── 5. documentEnd：收尾清理 ─────────────────────────
 (function E1() {
   const w = runEnd();

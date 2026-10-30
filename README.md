@@ -33,7 +33,7 @@ python3 tools/gen_ios_xcodeproj.py --verify
 | 手势 | `allowsBackForwardNavigationGestures = true`，右滑返回 |
 | 错误页 | 加载失败给可点重试的 HTML |
 
-## 去广告（1.0.4 —— 规则全部来自实测）
+## 去广告（1.0.5 —— 规则全部来自实测）
 
 **先说结论**：站点没有「全屏开屏广告图」。真正挡屏的是三个东西，2026-10-30 在 CI 上用
 Playwright 渲染 + A/B/C 三组对比实拍确认：
@@ -90,3 +90,15 @@ node scripts/verify_adblock.js
 - `#app` 内部的横幅靠 400ms 兜底清掉
 - `window.open` 被封、广告 iframe 被清
 - 几何杀手：拆全屏浮层、放过长文协议页/播放器/登录框、触碰后停手、限次
+
+### 1.0.5 复查出来的三处修复
+
+1. **兜底观察器挂错节点**：`siteJS` 注入在 documentStart，那时 `document.body` 还不存在，
+   只能 observe `documentElement`；body 建出来后没有重挂，于是「body 直接子节点新增」根本不触发回调，
+   主路径退化成 400ms 一次的全文档 querySelectorAll。→ DOMContentLoaded 时重新 observe body。
+2. **可能点到「取消」**：确认键用 `querySelector('.van-dialog__confirm, button')`，
+   vant 的 confirm 型 dialog 里取消键排在前面，`button` 兜底会先命中取消。
+   → 先 `.van-dialog__confirm`，再 `.van-dialog__footer button:last-child`，最后才 `button`。
+3. **首屏会闪一次横幅**：规则是异步编译的，WebView 建好时通常还没就绪，
+   直接加载首页 = 首屏请求不带规则，等规则到位再 reload 才干净。
+   → 规则没就绪时先停在本地黑底空白页，就绪后挂规则再导航首页（一次干净加载，不 reload）。

@@ -18,13 +18,16 @@ struct LegacyWebView: UIViewControllerRepresentable {
     let reloadToken: Int
     /// 广告拦截规则（网络层 + css-display-none）。空数组时只靠 CSS/JS 两层。
     let ruleLists: [WKContentRuleList]
+    /// 规则是否已编译完（编译失败也算「完」——那时 ruleLists 是空数组）
+    let rulesReady: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIViewController(context: Context) -> Container {
         let c = Container()
-        c.install(url: url, coordinator: context.coordinator, ruleLists: ruleLists)
-        context.coordinator.appliedRuleCount = ruleLists.count
+        c.install(url: url, coordinator: context.coordinator,
+                  ruleLists: ruleLists, rulesReady: rulesReady)
+        context.coordinator.didAttachRules = rulesReady
         return c
     }
 
@@ -33,14 +36,12 @@ struct LegacyWebView: UIViewControllerRepresentable {
             context.coordinator.lastReloadToken = reloadToken
             vc.web?.reload()
         }
-        // 兜底：万一规则是 WebView 建好之后才编译出来的（UIKit 层不会重建 Container），
-        // 这里把规则补挂进已有的 userContentController，否则网络层拦截等于没装。
-        if context.coordinator.appliedRuleCount != ruleLists.count, let web = vc.web {
-            context.coordinator.appliedRuleCount = ruleLists.count
-            let ucc = web.configuration.userContentController
-            ucc.removeAllContentRuleLists()
-            for list in ruleLists { ucc.add(list) }
-            web.reload()
+        // 规则是异步编译的，WebView 建好时通常还没就绪。
+        // 编译完（或编译失败）才把规则挂上去，**并且挂完才去导航首页** ——
+        // 顺序反了的话首屏请求会带着「无规则」发出去，横幅先闪一下、再 reload 才干净。
+        if rulesReady, !context.coordinator.didAttachRules {
+            context.coordinator.didAttachRules = true
+            vc.applyRules(ruleLists)
         }
     }
 
@@ -48,8 +49,12 @@ struct LegacyWebView: UIViewControllerRepresentable {
 
     final class Container: UIViewController {
         var web: WKWebView?
+        private var homeURL: URL?
+        private var started = false
 
-        func install(url: URL, coordinator: Coordinator, ruleLists: [WKContentRuleList]) {
+        func install(url: URL, coordinator: Coordinator,
+                     ruleLists: [WKContentRuleList], rulesReady: Bool) {
+            homeURL = url
             let cfg = WKWebViewConfiguration()
 
             // 视频不内联，一播进系统全屏播放器
@@ -128,8 +133,34 @@ struct LegacyWebView: UIViewControllerRepresentable {
             coordinator.attach(web: w, container: self)
             coordinator.observe(w)
 
-            w.load(URLRequest(url: url))
+            if rulesReady {
+                startIfNeeded()
+            } else {
+                // 规则还没编译完：先停在本地黑底空白页。
+                // 绝不能在「无规则」状态下加载首页 —— 那样横幅会先渲染一次，等规则到位再 reload，白闪一下。
+                w.loadHTMLString(Self.blankHTML, baseURL: nil)
+            }
         }
+
+        /// 规则就绪后：挂进已有的 userContentController，然后开始导航（或 reload）
+        func applyRules(_ lists: [WKContentRuleList]) {
+            guard let w = web else { return }
+            let ucc = w.configuration.userContentController
+            ucc.removeAllContentRuleLists()
+            for list in lists { ucc.add(list) }
+            startIfNeeded()
+        }
+
+        /// 首次 = 导航到首页；之后 = reload（刷新按钮、规则补挂都用它）
+        func startIfNeeded() {
+            guard let w = web, let url = homeURL else { return }
+            if started { w.reload() } else { started = true; w.load(URLRequest(url: url)) }
+        }
+
+        private static let blankHTML = """
+        <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">\
+        <style>html,body{margin:0;padding:0;background:#000}</style></head><body></body></html>
+        """
     }
 
     // MARK: - Coordinator
@@ -137,8 +168,8 @@ struct LegacyWebView: UIViewControllerRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let parent: LegacyWebView
         var lastReloadToken: Int = 0
-        /// 已经挂上去的规则条数，用来发现「规则后来才编译好」这种时序问题（-1 = 还不知道）
-        var appliedRuleCount: Int = -1
+        /// 规则是否已经挂进 userContentController（只挂一次）
+        var didAttachRules: Bool = false
         private var observations: [NSKeyValueObservation] = []
         private weak var web: WKWebView?
         private weak var container: UIViewController?

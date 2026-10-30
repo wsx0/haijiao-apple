@@ -19,10 +19,10 @@ struct RootView: View {
     @State private var reloadToken = 0
     @State private var showBar = true
     @State private var lastTap: Date = .distantPast
-    /// 广告拦截规则（网络层 + 开屏 css-display-none）。
-    /// 编译是异步的，所以这里先给空数组、照常建 WebView；
-    /// 规则编译完后由 `LegacyWebView.updateUIViewController` 补挂进 userContentController 并 reload 一次。
+    /// 广告拦截规则（网络层 + 开屏 css-display-none）。编译是异步的。
     @State private var ruleLists: [WKContentRuleList] = []
+    /// 规则编译是否已结束（成功或失败都算结束）——WebView 等它变 true 再导航首页
+    @State private var rulesReady = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -34,7 +34,8 @@ struct RootView: View {
                           canGoForward: $canGoForward,
                           title: $title,
                           reloadToken: reloadToken,
-                          ruleLists: ruleLists)
+                          ruleLists: ruleLists,
+                          rulesReady: rulesReady)
                 .ignoresSafeArea(edges: .bottom)
 
             // 顶部进度条
@@ -80,8 +81,10 @@ struct RootView: View {
         }
         .statusBarHidden(false)
         .task {
-            // 编译规则（异步）。失败就返回空数组，退回纯 CSS/JS 两层，不影响启动。
+            // 先编译规则；编译失败就是空数组，照样放行（退回 CSS/JS 两层）。
+            // 编译完通知 WebView 去挂规则 + 导航首页，保证首屏请求已经带着拦截规则。
             ruleLists = await AdBlock.makeRuleLists()
+            rulesReady = true
         }
         .onTapGesture {
             // 双击（间隔内连点两次）切换导航栏

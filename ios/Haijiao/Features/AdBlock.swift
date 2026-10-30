@@ -153,7 +153,11 @@ enum AdBlock {
 
       function clickConfirm(dlg) {
         var btn = null;
-        try { btn = dlg.querySelector('.van-dialog__confirm, button'); } catch (e) {}
+        // 只点「确认」，绝不点「取消」：
+        // vant 的 dialog footer 里取消键通常排在前面，用 'button' 兜底会先命中取消键。
+        try { btn = dlg.querySelector('.van-dialog__confirm'); } catch (e) {}
+        if (!btn) { try { btn = dlg.querySelector('.van-dialog__footer button:last-child'); } catch (e) {} }
+        if (!btn) { try { btn = dlg.querySelector('button'); } catch (e) {} }
         if (btn) { try { btn.click(); } catch (e) {} }
         setTimeout(function () { rm(dlg, 'dialog'); }, 80);
       }
@@ -184,17 +188,32 @@ enum AdBlock {
         } catch (e) {}
       }
 
-      function start() {
+      var mo = null;
+
+      function attachObserver() {
         try {
-          var mo = new MutationObserver(function (records) {
+          if (mo) { try { mo.disconnect(); } catch (e) {} }
+          mo = new MutationObserver(function (records) {
             for (var i = 0; i < records.length; i++) {
               var added = records[i].addedNodes;
               for (var k = 0; k < added.length; k++) onNode(added[k]);
             }
           });
+          // documentStart 时 body 还没建出来：先盯 documentElement，等 DOMContentLoaded 换成 body。
+          // 只盯「直接子节点」的 childList，不开 subtree —— 站点首屏 DOM 变动极其频繁。
           mo.observe(document.body || document.documentElement, { childList: true });
-          setTimeout(function () { try { mo.disconnect(); } catch (e) {} }, 20000);
         } catch (e) {}
+      }
+
+      function start() {
+        attachObserver();
+        if (!document.body) {
+          document.addEventListener('DOMContentLoaded', function () {
+            attachObserver();      // body 到手了，重新挂到 body 上，否则只看得到 html 的直接子节点
+            sweepPrecise();
+          }, { once: true });
+        }
+        setTimeout(function () { if (mo) { try { mo.disconnect(); } catch (e) {} } }, 20000);
 
         sweepPrecise();
         var n = 0;
