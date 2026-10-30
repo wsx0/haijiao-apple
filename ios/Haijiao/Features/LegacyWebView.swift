@@ -16,14 +16,14 @@ struct LegacyWebView: UIViewControllerRepresentable {
     @Binding var canGoForward: Bool
     @Binding var title: String
     let reloadToken: Int
-    /// 广告拦截规则（网络层）。为 nil 时只靠 CSS/JS 两层。
-    let ruleList: WKContentRuleList?
+    /// 广告拦截规则（网络层 + css-display-none）。空数组时只靠 CSS/JS 两层。
+    let ruleLists: [WKContentRuleList]
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeUIViewController(context: Context) -> Container {
         let c = Container()
-        c.install(url: url, coordinator: context.coordinator, ruleList: ruleList)
+        c.install(url: url, coordinator: context.coordinator, ruleLists: ruleLists)
         return c
     }
 
@@ -39,7 +39,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
     final class Container: UIViewController {
         var web: WKWebView?
 
-        func install(url: URL, coordinator: Coordinator, ruleList: WKContentRuleList?) {
+        func install(url: URL, coordinator: Coordinator, ruleLists: [WKContentRuleList]) {
             let cfg = WKWebViewConfiguration()
 
             // 视频不内联，一播进系统全屏播放器
@@ -55,11 +55,19 @@ struct LegacyWebView: UIViewControllerRepresentable {
             cfg.defaultWebpagePreferences.allowsContentJavaScript = true
 
             // ── 去广告 ──────────────────────────────────────
-            // 第 1 层：网络层规则
-            if let ruleList {
-                cfg.userContentController.add(ruleList)
+            // 第 1 层：网络层规则（域名 + 广告路径 + 开屏 css-display-none，已拆成两份编译）
+            for list in ruleLists {
+                cfg.userContentController.add(list)
             }
-            // 第 2 层：CSS 立刻隐藏（纯样式，零 CPU 成本）
+            // 第 2 层：开屏杀手 —— documentStart，跑在站点脚本之前
+            //   · 不认 class 名，靠 elementsFromPoint 几何判定「谁盖住视口」
+            //   · 只在启动窗口内、用户未操作时动手，限次 12 层
+            let splashScript = WKUserScript(
+                source: AdBlock.launchJS,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true)
+            cfg.userContentController.addUserScript(splashScript)
+            // 第 3 层：CSS 立刻隐藏（纯样式，零 CPU 成本）
             let cssScript = WKUserScript(
                 source: """
                 (function(){
@@ -72,7 +80,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false)
             cfg.userContentController.addUserScript(cssScript)
-            // 第 3 层：JS 清理（低开销版）
+            // 第 4 层：JS 常驻清理（低开销版）
             //   · 只扫 body 的直接子元素，不再遍历全站
             //   · 前 8 秒 300ms 一次，之后 2 秒
             //   · 每个节点只判定一次，避免反复强制布局
