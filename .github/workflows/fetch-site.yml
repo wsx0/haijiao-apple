@@ -1,0 +1,53 @@
+name: Fetch site (research)
+
+# 只在研究用：把 haijiao.com 的首页 / bundle / 渲染后的开屏浮层抓回来。
+# 不产出 ipa，不影响 Build iOS IPA。
+#
+# 为什么放 CI：haijiao.com 在这台机器上 DNS 被污染（解析到 31.13.x.x 假 IP），
+# 443/80 都不通，只能借海外 runner 当抓取端。
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fetch-site.yml'
+      - 'scripts/fetch-site.mjs'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 装 playwright + chromium
+        run: |
+          npm i --no-audit --no-fund playwright@1.48.2
+          npx playwright install --with-deps chromium
+
+      - name: 抓取
+        run: node scripts/fetch-site.mjs
+
+      - name: 摘要
+        if: always()
+        run: |
+          echo "--- out 目录 ---"
+          ls -laR out | head -60 || true
+          echo "--- 浮层数量 ---"
+          for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-dump-${{ github.run_number }}
+          path: out/
+          if-no-files-found: warn
+          retention-days: 14
