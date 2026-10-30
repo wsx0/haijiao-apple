@@ -159,7 +159,7 @@ enum AdBlock {
         if (!btn) { try { btn = dlg.querySelector('.van-dialog__footer button:last-child'); } catch (e) {} }
         if (!btn) { try { btn = dlg.querySelector('button'); } catch (e) {} }
         if (btn) { try { btn.click(); } catch (e) {} }
-        setTimeout(function () { rm(dlg, 'dialog'); }, 80);
+        setTimeout(function () { rm(dlg, 'dialog'); unlockBody(); }, 80);
       }
 
       // 只看「新增节点」，命中就处理
@@ -176,6 +176,35 @@ enum AdBlock {
         } catch (e) {}
       }
 
+      // 站点用 vant 的滚动锁：弹窗一开就给 body 加 van-overflow-hidden。
+      // 我们把弹窗节点删了，vant 自己的清理就被「外力移除」打断 —— 这个 class 会留在 body 上，
+      // 结果整页滚不动、看着像「点不动屏幕」。没有弹窗时就强制解锁。
+      function unlockBody() {
+        try {
+          var b = document.body;
+          if (!b) return;
+          if (document.querySelector('.van-dialog, .van-popup')) return;   // 真有弹窗就不动
+          var cls = String(b.className || '');
+          if (cls.indexOf('van-overflow-hidden') >= 0) {
+            b.className = cls.split(/\\s+/).filter(function (x) {
+              return x && x !== 'van-overflow-hidden';
+            }).join(' ');
+            if (LOG.length < 30) LOG.push('unlock:body');
+          }
+          if (b.style) {
+            if (b.style.overflow) b.style.overflow = '';
+            if (b.style.overflowY) b.style.overflowY = '';
+          }
+          var stray = document.querySelectorAll('.van-overlay');
+          for (var i = 0; i < stray.length; i++) {
+            var ov = stray[i];
+            var next = ov.nextElementSibling;
+            var orphan = !next || !/van-dialog|van-popup/.test(String(next.className || ''));
+            if (orphan) { try { ov.remove(); } catch (e) {} }
+          }
+        } catch (e) {}
+      }
+
       // 精确选择器兜底（只查 4 个选择器，不扫全站）
       function sweepPrecise() {
         try {
@@ -186,6 +215,7 @@ enum AdBlock {
           var dlg = document.querySelectorAll(DIALOG);
           for (var j = 0; j < dlg.length; j++) clickConfirm(dlg[j]);
         } catch (e) {}
+        unlockBody();
       }
 
       var mo = null;

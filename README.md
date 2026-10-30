@@ -33,7 +33,7 @@ python3 tools/gen_ios_xcodeproj.py --verify
 | 手势 | `allowsBackForwardNavigationGestures = true`，右滑返回 |
 | 错误页 | 加载失败给可点重试的 HTML |
 
-## 去广告（1.0.6 —— 规则全部来自实测）
+## 去广告（1.0.7 —— 规则全部来自实测）
 
 **先说结论**：站点没有「全屏开屏广告图」。真正挡屏的是三个东西，2026-10-30 在 CI 上用
 Playwright 渲染 + A/B/C 三组对比实拍确认：
@@ -116,3 +116,13 @@ node scripts/verify_adblock.js
 | `siteJS` 兜底扫描 | 400ms × 40 次（16 秒） | 350ms × 20 次（约 7 秒） |
 | `documentEnd` 兜底 tick | 1.5 秒一次（永久） | 2.5 秒一次 |
 | `documentEnd` 的 MutationObserver | `subtree: true`（站点首屏 DOM 变动全打进回调） | 只看 body 直接子节点 |
+
+### 1.0.7：修「点不动屏幕」
+
+站点用 vant 的滚动锁：弹窗一开就给 `<body>` 加 `van-overflow-hidden`。
+实测抓到的真实 DOM 就是 `<body class="van-overflow-hidden" style="overflow-y: auto;">`。
+我们为了去广告直接把弹窗节点删掉，vant 自己的清理就被「外力移除节点」打断了 ——
+这个 class 留在 body 上，整页滚不动，用户感知就是「等一会才能操作 / 点不动」。
+
+1.0.7 在没有 `.van-dialog` / `.van-popup` 时强制解锁（顺手清掉失去配对兄弟的 `.van-overlay`）；
+存在真弹窗（登录框之类）时一律不碰。回归里 S9/S10 两条用例专门盯这个。

@@ -445,6 +445,36 @@ function splash(world, opts) {
   ok('S8 body 就位后，新增的 .topbanmer 立即被摘掉', late.parentNode === null,
      JSON.stringify(w.sandbox.window.__hj_strip_log));
 })();
+(function S9() {
+  const w = runSite();
+  // 站点打开弹窗时的真实形态：body 被加滚动锁、先插 overlay、再插 dialog
+  w.body.className = 'van-overflow-hidden';
+  const ov = new El('div', { cls: 'van-overlay' });
+  w.body.appendChild(ov);
+  const dlg = new El('div', { cls: 'van-dialog luodiconfirm' });
+  const btn = new El('button', { cls: 'van-dialog__confirm' });
+  dlg.appendChild(btn);
+  w.body.appendChild(dlg);
+  w.frame(14);
+  ok('S9 弹窗清掉后 body 滚动锁被解除', w.body.className.indexOf('van-overflow-hidden') < 0,
+     'class="' + w.body.className + '" log=' + JSON.stringify(w.sandbox.window.__hj_strip_log));
+  ok('S9 残留遮罩被摘掉', ov.parentNode === null);
+})();
+
+(function S10() {
+  const w = runSite();
+  // 站点正常的登录弹窗：带 input，不属于我们清理范围 —— body 锁必须保留，遮罩也不许动
+  w.body.className = 'van-overflow-hidden';
+  const ov = new El('div', { cls: 'van-overlay' });
+  w.body.appendChild(ov);
+  const dlg = new El('div', { cls: 'van-dialog login' });
+  dlg.appendChild(new El('input', { rect: { left: 40, top: 400, width: 300, height: 40 } }));
+  w.body.appendChild(dlg);
+  w.frame(14);
+  ok('S10 真弹窗时不解锁、不拆遮罩',
+     w.body.className.indexOf('van-overflow-hidden') >= 0 && ov.parentNode === w.body,
+     'class="' + w.body.className + '"');
+})();
 // ───────────────────────── 5. documentEnd：收尾清理 ─────────────────────────
 (function E1() {
   const w = runEnd();
