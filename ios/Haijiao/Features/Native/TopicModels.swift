@@ -37,14 +37,20 @@ struct Topic: Decodable, Identifiable {
 
     var id: Int { topicId ?? 0 }
 
-    /// 列表里要展示的图（视频取封面，图片取 remoteUrl）
+    /// 列表里要展示的图。
+    /// 注意：视频类附件的 `remoteUrl` 是**视频文件**地址，不是图片 —— 拿它当图片会加载失败，
+    /// 视频必须优先 coverUrl；图片类才优先 remoteUrl。
     var displayImages: [URL] {
         guard let atts = attachments else { return [] }
         var out: [URL] = []
         for a in atts {
+            let isVideo = (a.category ?? "").lowercased().contains("video")
             let raw: String?
-            if let r = a.remoteUrl, !r.isEmpty { raw = r }
-            else { raw = a.coverUrl }
+            if isVideo {
+                raw = (a.coverUrl?.isEmpty == false) ? a.coverUrl : a.remoteUrl
+            } else {
+                raw = (a.remoteUrl?.isEmpty == false) ? a.remoteUrl : a.coverUrl
+            }
             if let u = TopicAPI.imageURL(raw) { out.append(u) }
             if out.count >= 3 { break }
         }

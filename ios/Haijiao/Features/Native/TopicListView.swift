@@ -14,6 +14,7 @@ import UIKit
 final class NativeImageCache {
     static let shared = NativeImageCache()
     private let cache = NSCache<NSString, UIImage>()
+    private init() { cache.countLimit = 300 }
     func get(_ key: String) -> UIImage? { cache.object(forKey: key as NSString) }
     func set(_ key: String, _ image: UIImage) { cache.setObject(image, forKey: key as NSString) }
 }
@@ -51,12 +52,14 @@ struct RemoteImage: View {
             req.setValue(TopicAPI.ua, forHTTPHeaderField: "User-Agent")
             req.setValue("\(TopicAPI.base)/", forHTTPHeaderField: "Referer")
             let (data, _) = try await URLSession.shared.data(for: req)
-            if let img = UIImage(data: data) {
-                NativeImageCache.shared.set(key, img)
-                image = img
-            } else {
+            guard let full = UIImage(data: data) else {
                 failed = true
+                return
             }
+            // 下采样到 300pt：列表格子只有 ~100pt，原图（gif/jpeg 常见 1000px+）白占内存
+            let thumb = await full.byPreparingThumbnail(ofSize: CGSize(width: 300, height: 300)) ?? full
+            NativeImageCache.shared.set(key, thumb)
+            image = thumb
         } catch {
             failed = true
         }
@@ -95,13 +98,15 @@ final class TopicStore: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            let page = try await TopicAPI.fetchTopics(page: nextPage)
-            let items = page.results ?? []
-            if items.isEmpty {
+            let fetched = try await TopicAPI.fetchTopics(page: nextPage)
+            let raw = fetched.results ?? []
+            // topicId 缺失的条目会让 Identifiable 的 id 全变 0 → List 身份冲突，直接丢掉
+            let items = raw.filter { ($0.topicId ?? 0) > 0 }
+            if raw.isEmpty {
                 total = topics.count
             } else {
                 topics.append(contentsOf: items)
-                if let t = page.page?.total { total = t }
+                if let t = fetched.page?.total { total = t }
                 nextPage += 1
             }
             errorText = nil
@@ -174,18 +179,28 @@ struct NativeHomeView: View {
         NavigationView {
             List {
                 ForEach(store.topics) { t in
-                    TopicRow(topic: t)
-                        .listRowSeparator(.hidden)
-                        .contentShape(Rectangle())
-                        .onTapGesture { onOpen(TopicAPI.detailURL(topicId: t.id)) }
-                        .onAppear {
-                            if t.id == store.topics.last?.id {
-                                Task { await store.loadMore() }
-                            }
+                    Button {
+                        onOpen(TopicAPI.detailURL(topicId: t.id))
+                    } label: {
+                        TopicRow(topic: t)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowSeparator(.hidden)
+                    .onAppear {
+                        if t.id == store.topics.last?.id {
+                            Task { await store.loadMore() }
                         }
+                    }
                 }
 
-                if store.loading {
+                // 首屏还没有内容时的占位
+                if store.topics.isEmpty, store.loading {
+                    HStack { Spacer(); ProgressView(); Spacer() }
+                        .padding(.vertical, 30)
+                        .listRowSeparator(.hidden)
+                }
+
+                if store.loading, !store.topics.isEmpty {
                     HStack { Spacer(); ProgressView(); Spacer() }
                         .listRowSeparator(.hidden)
                 }
