@@ -355,12 +355,8 @@ enum AdBlock {
         }
         setTimeout(function () { if (mo) { try { mo.disconnect(); } catch (e) {} } }, 20000);
 
-        sweepPrecise();
-        var n = 0;
-        var t = setInterval(function () {
-          sweepPrecise();
-          if (++n >= 15) { try { clearInterval(t); } catch (e) {} }
-        }, 300);
+        sweepPrecise();   // 只扫一次；之后完全靠 MutationObserver 事件驱动，空闲时零开销
+
       }
 
       // ── 底层兜底：首屏撑高 ────────────────────────────────────────────
@@ -442,16 +438,10 @@ enum AdBlock {
         dropAdNodes();
         if (window.__hj_strip_now) { try { window.__hj_strip_now(); } catch (e) {} }
       }
-      // 延后 600ms 启动：documentEnd 正好是站点渲染首屏的时刻，别在这时候抢主线程。
-      // 节奏：前 16 轮 1.2 秒一次（首屏 + 换页最需要），之后降到 5 秒一次 —— 永久高频没有意义，
-      // 每次都要在全文档上跑属性选择器，纯烧 WebContent 主线程。
-      var rounds = 0;
-      function loop() {
-        tick();
-        var gap = (rounds++ < 16) ? 1200 : 5000;
-        setTimeout(loop, gap);
-      }
-      setTimeout(loop, 600);
+      // 只跑一次 + 之后完全事件驱动。
+      // 之前这里是 1.2 秒 / 5 秒的递归 tick，每次都拿全文档跑属性选择器 ——
+      // 在真机上这就是「手指划上去没反应」的嫌疑人：主线程被我们自己的扫描占着。
+      tick();
 
       // 5) body 直接子节点变动就清一次（去抖 300ms；不开 subtree，避免站点首屏把回调打爆）
       try {

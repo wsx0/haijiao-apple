@@ -22,6 +22,8 @@ struct LegacyWebView: UIViewControllerRepresentable {
     let rulesReady: Bool
     /// 双击网页区域时回调（切换底部导航栏），由 UIKit 手势触发，不抢单击
     let onDoubleTap: () -> Void
+    /// 诊断文本：前 10 秒采集原生滚动几何 + 网页侧状态（用来定位「划不动」）
+    @Binding var diag: String
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -145,6 +147,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
 
             coordinator.attach(web: w, container: self)
             coordinator.observe(w)
+            coordinator.startDiag()
 
             // 立刻开始导航，**不等规则**。
             // 规矩是：挡横幅/弹窗靠的是 documentStart 就注入的 CSS 与 siteJS，
@@ -192,6 +195,8 @@ struct LegacyWebView: UIViewControllerRepresentable {
         var lastReloadToken: Int = 0
         /// 规则是否已经挂进 userContentController（只挂一次）
         var didAttachRules: Bool = false
+        private var diagTimer: Timer?
+        private var bootAt = Date()
         private var observations: [NSKeyValueObservation] = []
         private weak var web: WKWebView?
         private weak var container: UIViewController?
@@ -199,6 +204,34 @@ struct LegacyWebView: UIViewControllerRepresentable {
 
         init(_ parent: LegacyWebView) {
             self.parent = parent
+        }
+
+        /// 前 10 秒每 0.5 秒采一次滚动几何，直接画在界面上 —— 用户截图就能定位问题。
+        func startDiag() {
+            bootAt = Date()
+            diagTimer?.invalidate()
+            diagTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+                guard let self, let web = self.web else { return }
+                let elapsed = Date().timeIntervalSince(self.bootAt)
+                if elapsed > 10 { timer.invalidate(); return }
+                let sv = web.scrollView
+                let line = String(
+                    format: "[%.1fs] b=%dx%d cs=%dx%d off=%.0f sc=%@ zm=%.2f",
+                    elapsed,
+                    Int(web.bounds.width), Int(web.bounds.height),
+                    Int(sv.contentSize.width), Int(sv.contentSize.height),
+                    sv.contentOffset.y,
+                    sv.isScrollEnabled ? "1" : "0",
+                    web.zoomScale)
+                self.parent.diag = line
+                web.evaluateJavaScript(
+                    "(function(){try{var d=window.__hj_diag?window.__hj_diag():{};" +
+                    "return 'sh='+d.scrollHeight+' ch='+d.clientHeight+' ov='+d.bodyOverflow" +
+                    "+' sp='+(d.spacer?1:0)+' md='+(d.modalVisible?1:0);}catch(e){return 'js-err';}})()"
+                ) { res, _ in
+                    if let s = res as? String { self.parent.diag = line + "\n" + s }
+                }
+            }
         }
 
         /// 双击网页区域：切换底部导航栏。

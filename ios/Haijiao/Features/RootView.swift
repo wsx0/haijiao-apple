@@ -22,6 +22,9 @@ struct RootView: View {
     @State private var ruleLists: [WKContentRuleList] = []
     /// 规则编译是否已结束（成功或失败都算结束）
     @State private var rulesReady = false
+    /// 诊断文本（前 10 秒采集，直接画在界面上，截图即可定位「划不动」）
+    @State private var diag = ""
+    @State private var diagVisible = true
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -35,8 +38,24 @@ struct RootView: View {
                           reloadToken: reloadToken,
                           ruleLists: ruleLists,
                           rulesReady: rulesReady,
-                          onDoubleTap: { withAnimation { showBar.toggle() } })
+                          onDoubleTap: { withAnimation { showBar.toggle() } },
+                          diag: $diag)
                 .ignoresSafeArea(edges: .bottom)
+
+            // 诊断面板：启动后前 12 秒显示（不影响触摸），截图就能看出滚动几何到底卡在哪
+            if diagVisible, !diag.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(diag)
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(Color.green)
+                        .padding(4)
+                        .background(Color.black.opacity(0.7))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 40)
+                .padding(.horizontal, 4)
+                .allowsHitTesting(false)
+            }
 
             // 顶部进度条
             if progress > 0, progress < 1 {
@@ -84,6 +103,11 @@ struct RootView: View {
             // 先编译规则；编译失败就是空数组，照样放行（退回 CSS/JS 两层）。
             ruleLists = await AdBlock.makeRuleLists()
             rulesReady = true
+        }
+        .task {
+            // 12 秒后自动收起诊断面板
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            diagVisible = false
         }
         // 双击隐藏/显示底部导航栏 —— 由 WKWebView 上的 UITapGestureRecognizer 触发
         // （cancelsTouchesInView = false），不再用 SwiftUI 的整屏 onTapGesture：

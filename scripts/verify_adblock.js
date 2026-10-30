@@ -415,9 +415,10 @@ function splash(world, opts) {
   w.body.appendChild(app);
   const inner = new El('div', { cls: 'topbanmer' });
   app.appendChild(inner);
-  ok('S6 兜底前它还在', inner.parentNode === app);
-  w.frame(25);                      // 750ms，覆盖一个 600ms 兜底
-  ok('S6 #app 内部的 .topbanmer 被兜底摘掉', inner.parentNode === null,
+  w.frame(25);
+  ok('S6 无周期兜底时它靠 CSS 隐藏（DOM 保留）', inner.parentNode === app);
+  w.sandbox.window.__hj_strip_now();
+  ok('S6 手动 __hj_strip_now 仍能摘掉', inner.parentNode === null,
      JSON.stringify(w.sandbox.window.__hj_strip_log));
 })();
 
