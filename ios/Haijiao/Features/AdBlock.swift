@@ -144,12 +144,19 @@ enum AdBlock {
     /* 实测到的挡屏物 —— 首帧就藏 */
     .topbanmer, .addbox,
     .van-dialog.luodiconfirm, .van-dialog.luodisconfirm,
-    /* 滚动硬兜底（底层）：
-       1) 特异性格外高，压过 vant 的 .van-overflow-hidden{overflow:hidden!important}
-       2) 用 scroll 而不是 auto —— auto 在内容高度不足视口时 WebKit 直接判定「不可滚」，
-          表现就是手指划上去毫无反应；scroll 会立刻建立可滚的滚动容器。
-       3) html 也放开：站点有些页面只锁 html。 */
-    html, body, body.van-overflow-hidden { overflow-y: scroll !important; }
+    /* 只覆盖「被 vant 锁住」这一种情况，绝不碰 html/body 的默认 overflow。 */
+    body.van-overflow-hidden { overflow-y: auto !important; }
+
+    /* 真机诊断（1.0.17 面板）：b=430x873 cs=430x873 sh=873 ch=873 —— 文档高度 == 视口，
+       可帖子内容明显超过一屏。也就是说站点把 html/body/#app/.pagebox/.indexbox 全设成 100% 高、
+       内容溢出被裁，滚动本该由内部容器负责；在 WKWebView 里这条链断了，于是整页滚不动。
+       这里把高度链放开：内容自然撑开文档，滚动重新交给 WKWebView 的原生 UIScrollView。 */
+    html, body { height: auto !important; min-height: 100% !important; overflow-y: auto !important; }
+    #app, #app > .mobile, #app .pagebox, #app .indexbox {
+        height: auto !important;
+        min-height: 100vh !important;
+        overflow: visible !important;
+    }
     /* 同域下发的广告位（站点换名字时的兜底） */
     [class*="advert" i], [id*="advert" i],
     [class*="adsbygoogle" i], ins.adsbygoogle,
@@ -361,6 +368,25 @@ enum AdBlock {
 
       // 首屏「撑高」已移除：实测它把文档拉到 2.2 屏高，内容只有一屏时用户划的是空白区，
       // 反而制造了「划不动」的观感，而且要等 12 秒兜底定时器撤销才恢复。别再往布局里塞东西。
+      // 找出「内容比自身高、但滚动落不到文档」的容器：这正是 sh==ch 时的元凶。
+      function overflowers() {
+        var out = [];
+        try {
+          var els = document.querySelectorAll('#app div, #app section, #app ul');
+          for (var i = 0; i < els.length && out.length < 3; i++) {
+            var el = els[i];
+            if (el.clientHeight < 100) continue;
+            if (el.scrollHeight <= el.clientHeight + 50) continue;
+            var cs = null;
+            try { cs = getComputedStyle(el); } catch (e) {}
+            var cls = String(el.className || '').split(/\\s+/).slice(0, 2).join('.');
+            out.push((el.id ? '#' + el.id : '') + (cls ? '.' + cls : '') +
+                     ' ' + el.clientHeight + '/' + el.scrollHeight + ' ' + (cs ? cs.overflowY : '?'));
+          }
+        } catch (e) {}
+        return out.join(' | ');
+      }
+
       window.__hj_diag = function () {
         try {
           var se = document.scrollingElement || document.documentElement;
@@ -374,6 +400,7 @@ enum AdBlock {
             spacer: 0,
             overlays: document.querySelectorAll('.van-overlay').length,
             modalVisible: hasVisibleModal(),
+            overflowers: overflowers(),
             log: LOG.slice(-10),
           };
         } catch (e) { return { error: String(e) }; }
