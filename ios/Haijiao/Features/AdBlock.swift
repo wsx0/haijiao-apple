@@ -219,8 +219,8 @@ enum AdBlock {
         var n = 0;
         var t = setInterval(function () {
           sweepPrecise();
-          if (++n >= 40) { try { clearInterval(t); } catch (e) {} }
-        }, 400);
+          if (++n >= 20) { try { clearInterval(t); } catch (e) {} }
+        }, 350);
       }
 
       window.__hj_strip_now = sweepPrecise;
@@ -262,22 +262,22 @@ enum AdBlock {
         } catch (e) {}
       }
 
-      // 4) 每 1.5 秒兜底一次（精确选择器 + 广告节点），SPA 换页后也管用
+      // 4) 每 2.5 秒兜底一次（精确选择器 + 广告节点），SPA 换页后也管用
       function tick() {
         dropAdNodes();
         if (window.__hj_strip_now) { try { window.__hj_strip_now(); } catch (e) {} }
       }
       tick();
-      setInterval(tick, 1500);
+      setInterval(tick, 2500);
 
-      // 5) DOM 变动就清一次（去抖 300ms，只看新增子树，不做几何）
+      // 5) body 直接子节点变动就清一次（去抖 300ms；不开 subtree，避免站点首屏把回调打爆）
       try {
         var pending = false;
         new MutationObserver(function () {
           if (pending) return;
           pending = true;
           setTimeout(function () { pending = false; tick(); }, 300);
-        }).observe(document.body || document.documentElement, { childList: true, subtree: true });
+        }).observe(document.body || document.documentElement, { childList: true });
       } catch (e) {}
     })();
     """

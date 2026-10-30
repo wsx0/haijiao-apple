@@ -25,8 +25,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> Container {
         let c = Container()
-        c.install(url: url, coordinator: context.coordinator,
-                  ruleLists: ruleLists, rulesReady: rulesReady)
+        c.install(url: url, coordinator: context.coordinator, ruleLists: ruleLists)
         context.coordinator.didAttachRules = rulesReady
         return c
     }
@@ -52,8 +51,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
         private var homeURL: URL?
         private var started = false
 
-        func install(url: URL, coordinator: Coordinator,
-                     ruleLists: [WKContentRuleList], rulesReady: Bool) {
+        func install(url: URL, coordinator: Coordinator, ruleLists: [WKContentRuleList]) {
             homeURL = url
             let cfg = WKWebViewConfiguration()
 
@@ -133,34 +131,27 @@ struct LegacyWebView: UIViewControllerRepresentable {
             coordinator.attach(web: w, container: self)
             coordinator.observe(w)
 
-            if rulesReady {
-                startIfNeeded()
-            } else {
-                // 规则还没编译完：先停在本地黑底空白页。
-                // 绝不能在「无规则」状态下加载首页 —— 那样横幅会先渲染一次，等规则到位再 reload，白闪一下。
-                w.loadHTMLString(Self.blankHTML, baseURL: nil)
-            }
-        }
-
-        /// 规则就绪后：挂进已有的 userContentController，然后开始导航（或 reload）
-        func applyRules(_ lists: [WKContentRuleList]) {
-            guard let w = web else { return }
-            let ucc = w.configuration.userContentController
-            ucc.removeAllContentRuleLists()
-            for list in lists { ucc.add(list) }
+            // 立刻开始导航，**不等规则**。
+            // 规矩是：挡横幅/弹窗靠的是 documentStart 就注入的 CSS 与 siteJS，
+            // 不依赖 WKContentRuleList；规则晚几十毫秒到，补挂上就行，不用 reload。
+            // （1.0.5 曾为了「先挂规则再导航」让用户盯一块黑屏，纯属自找的等待。）
             startIfNeeded()
         }
 
-        /// 首次 = 导航到首页；之后 = reload（刷新按钮、规则补挂都用它）
+        /// 规则就绪后补挂进已有的 userContentController。
+        /// 不 reload：CSS/siteJS 早已生效，重载只会让用户白等一次。
+        func applyRules(_ lists: [WKContentRuleList]) {
+            guard let w = web, !lists.isEmpty else { return }
+            let ucc = w.configuration.userContentController
+            ucc.removeAllContentRuleLists()
+            for list in lists { ucc.add(list) }
+        }
+
+        /// 首次 = 导航到首页；之后 = reload（刷新按钮用）
         func startIfNeeded() {
             guard let w = web, let url = homeURL else { return }
             if started { w.reload() } else { started = true; w.load(URLRequest(url: url)) }
         }
-
-        private static let blankHTML = """
-        <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">\
-        <style>html,body{margin:0;padding:0;background:#000}</style></head><body></body></html>
-        """
     }
 
     // MARK: - Coordinator

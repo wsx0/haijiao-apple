@@ -33,7 +33,7 @@ python3 tools/gen_ios_xcodeproj.py --verify
 | 手势 | `allowsBackForwardNavigationGestures = true`，右滑返回 |
 | 错误页 | 加载失败给可点重试的 HTML |
 
-## 去广告（1.0.5 —— 规则全部来自实测）
+## 去广告（1.0.6 —— 规则全部来自实测）
 
 **先说结论**：站点没有「全屏开屏广告图」。真正挡屏的是三个东西，2026-10-30 在 CI 上用
 Playwright 渲染 + A/B/C 三组对比实拍确认：
@@ -102,3 +102,17 @@ node scripts/verify_adblock.js
 3. **首屏会闪一次横幅**：规则是异步编译的，WebView 建好时通常还没就绪，
    直接加载首页 = 首屏请求不带规则，等规则到位再 reload 才干净。
    → 规则没就绪时先停在本地黑底空白页，就绪后挂规则再导航首页（一次干净加载，不 reload）。
+
+### 1.0.6：把「等一会才能操作」去掉了
+
+1.0.5 为了「先挂规则再导航」，让 WebView 先停在本地黑底空白页等 `WKContentRuleList` 编译完 ——
+那是自找的等待：**挡横幅/弹窗靠的是 documentStart 就注入的 CSS 与 siteJS，根本不依赖规则列表**。
+1.0.6 改成：WebView 一建好立刻导航首页；规则晚几十毫秒到，补挂上就行，**不 reload**。
+
+同时把两条后台开销压小（都在 WebContent 主线程上跑，首屏最敏感）：
+
+| 项 | 1.0.5 | 1.0.6 |
+|---|---|---|
+| `siteJS` 兜底扫描 | 400ms × 40 次（16 秒） | 350ms × 20 次（约 7 秒） |
+| `documentEnd` 兜底 tick | 1.5 秒一次（永久） | 2.5 秒一次 |
+| `documentEnd` 的 MutationObserver | `subtree: true`（站点首屏 DOM 变动全打进回调） | 只看 body 直接子节点 |
