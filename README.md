@@ -31,7 +31,7 @@ python3 tools/gen_ios_xcodeproj.py --verify
 | 手势 | `allowsBackForwardNavigationGestures = true`，右滑返回 |
 | 错误页 | 加载失败给可点重试的 HTML |
 
-## 去开屏广告（1.0.1）
+## 去开屏广告（1.0.2）
 
 四层，全部在 `ios/Haijiao/Features/AdBlock.swift`：
 
@@ -45,6 +45,12 @@ python3 tools/gen_ios_xcodeproj.py --verify
 第 2 层是这次新增的核心：**不依赖 class 名**（站点改个名就废），只看几何
 ——谁盖住视口就是谁。护栏：只在启动 20 秒内、用户还没碰屏幕时动手，最多拆 12 层，
 碰到 `input/textarea/select/video` 或名字含 login/pay/player 的层一律放过。
+
+> 1.0.2 还要修一个时序坑：`UIViewControllerRepresentable.makeUIViewController` 只在视图首次
+> 出现时调一次，旧版在 `.task` 里异步编译规则 → WebView 早已建好，规则一条都没挂上，
+> **网络层拦截和 css-display-none 全程空转**。现在规则编译完才创建 WebView，
+> `updateUIViewController` 里再兜一层（规则数变化就补挂 + reload）。
+
 
 调试：Safari 连上设备 → Web Inspector → 控制台执行 `__hj_scan()` 手动再扫一轮，
 `__hj_splash_kills` 是本次启动被拆掉的层（id/class 片段）。

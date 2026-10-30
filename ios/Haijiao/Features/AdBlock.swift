@@ -296,6 +296,10 @@ enum AdBlock {
       }
 
       function kill(layer) {
+        // 幂等：同一个层只拆一次，别把 12 次配额浪费在同一个节点上
+        var tag = null;
+        try { tag = layer.getAttribute && layer.getAttribute('data-hj-killed'); } catch (e) {}
+        if (tag === '1') return false;
         var label = nameOf(layer).slice(0, 60) || layer.tagName;
         clickIn(layer);
         var gone = false;
@@ -317,7 +321,11 @@ enum AdBlock {
         lastRun = now;
         var layer = null;
         try { layer = findOverlay(); } catch (e) {}
-        if (layer) kill(layer);
+        if (layer) {
+          // 已经脱离文档的节点还能被取样命中（旧子树），跳过，别占配额
+          if (layer.isConnected === false) return false;
+          kill(layer);
+        }
         return false;
       }
 

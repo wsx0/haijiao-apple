@@ -24,6 +24,7 @@ struct LegacyWebView: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> Container {
         let c = Container()
         c.install(url: url, coordinator: context.coordinator, ruleLists: ruleLists)
+        context.coordinator.appliedRuleCount = ruleLists.count
         return c
     }
 
@@ -31,6 +32,15 @@ struct LegacyWebView: UIViewControllerRepresentable {
         if context.coordinator.lastReloadToken != reloadToken {
             context.coordinator.lastReloadToken = reloadToken
             vc.web?.reload()
+        }
+        // 兜底：万一规则是 WebView 建好之后才编译出来的（UIKit 层不会重建 Container），
+        // 这里把规则补挂进已有的 userContentController，否则网络层拦截等于没装。
+        if context.coordinator.appliedRuleCount != ruleLists.count, let web = vc.web {
+            context.coordinator.appliedRuleCount = ruleLists.count
+            let ucc = web.configuration.userContentController
+            ucc.removeAllContentRuleLists()
+            for list in ruleLists { ucc.add(list) }
+            web.reload()
         }
     }
 
@@ -122,6 +132,8 @@ struct LegacyWebView: UIViewControllerRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         private let parent: LegacyWebView
         var lastReloadToken: Int = 0
+        /// 已经挂上去的规则条数，用来发现「规则后来才编译好」这种时序问题（-1 = 还不知道）
+        var appliedRuleCount: Int = -1
         private var observations: [NSKeyValueObservation] = []
         private weak var web: WKWebView?
         private weak var container: UIViewController?

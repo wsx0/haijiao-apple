@@ -19,21 +19,29 @@ struct RootView: View {
     @State private var reloadToken = 0
     @State private var showBar = true
     @State private var lastTap: Date = .distantPast
-    /// 广告拦截规则（网络层 + 开屏 css-display-none）。先渲染再用，编译失败也不影响启动。
-    @State private var ruleLists: [WKContentRuleList] = []
+    /// 广告拦截规则（网络层 + 开屏 css-display-none）。
+    /// nil = 还没编译完 —— 这时候**不建 WebView**。
+    ///
+    /// 为什么非这样不可：`UIViewControllerRepresentable.makeUIViewController` 只在视图首次出现时调一次，
+    /// 之后 ruleLists 变化只会走 `updateUIViewController`。旧版在 `.task` 里异步赋值，
+    /// 结果 WebView 早就建好了，规则一条也没挂上去 —— 网络拦截和 css-display-none 全程空转。
+    /// 现在等规则就绪再建 WebView（编译通常几十到几百毫秒，期间只是黑屏）。
+    @State private var ruleLists: [WKContentRuleList]?
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
 
-            LegacyWebView(url: Self.homeURL,
-                          progress: $progress,
-                          canGoBack: $canGoBack,
-                          canGoForward: $canGoForward,
-                          title: $title,
-                          reloadToken: reloadToken,
-                          ruleLists: ruleLists)
-                .ignoresSafeArea(edges: .bottom)
+            if let lists = ruleLists {
+                LegacyWebView(url: Self.homeURL,
+                              progress: $progress,
+                              canGoBack: $canGoBack,
+                              canGoForward: $canGoForward,
+                              title: $title,
+                              reloadToken: reloadToken,
+                              ruleLists: lists)
+                    .ignoresSafeArea(edges: .bottom)
+            }
 
             // 顶部进度条
             if progress > 0, progress < 1 {
@@ -78,7 +86,7 @@ struct RootView: View {
         }
         .statusBarHidden(false)
         .task {
-            // 规则在后台编译，不阻塞首帧渲染；失败就只靠 CSS/JS 两层
+            // 先编译规则，编译完才出现 WebView。失败（空数组）也照样放行，靠注入的 CSS/JS 兜。
             ruleLists = await AdBlock.makeRuleLists()
         }
         .onTapGesture {

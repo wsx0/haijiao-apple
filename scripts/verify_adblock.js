@@ -198,7 +198,9 @@ function makeWorld() {
     })(html),
     querySelectorAll: () => [],
     elementsFromPoint(x, y) {
-      const cands = hits.filter(h => h.el.parentNode !== null)   // 已被摘掉的节点不再命中
+      // 只有仍挂在 html 子树里的节点才参与命中（真实浏览器同样不会命中已脱离文档的旧子树）
+      const inDoc = el => { let n = el; while (n) { if (n === html) return true; n = n.parentNode; } return false; };
+      const cands = hits.filter(h => inDoc(h.el))
         .filter(h => x >= h.el._rect.left && x <= h.el._rect.left + h.el._rect.width &&
                      y >= h.el._rect.top && y <= h.el._rect.top + h.el._rect.height)
         .sort((a, b) => b.z - a.z);
@@ -372,6 +374,51 @@ function splash(world, opts) {
   const before = ad.parentNode !== null;
   w.sandbox.window.__hj_scan();
   ok('T9 触碰后 __hj_scan 仍可手动拆', before && ad.parentNode === null);
+})();
+
+// ── T10 嵌套开屏（最深元素在最上层，靠祖先几何判定） ──
+(function T10() {
+  const w = runLaunch();
+  const outer = new El('div', {
+    id: '', cls: 'gg-wrap',
+    rect: { left: 0, top: 0, width: W, height: H },
+    style: { position: 'fixed', zIndex: '8000' },
+  });
+  const mid = new El('div', { rect: { left: 0, top: 0, width: W, height: H } });
+  const inner = new El('img', { rect: { left: 0, top: 0, width: W, height: H } });
+  mid.appendChild(inner); outer.appendChild(mid); w.body.appendChild(outer);
+  w.addHit(inner, 8000);                    // 命中点在最深的那张图上
+  w.frame(8);
+  ok('T10 嵌套 3 层的开屏被整层移除', outer.parentNode === null,
+     JSON.stringify(w.sandbox.window.__hj_splash_kills));
+})();
+
+// ── T11 顶部横幅（宽满但矮）不该当成开屏整层拆 ──
+(function T11() {
+  const w = runLaunch();
+  const banner = new El('a', {
+    id: '', cls: 'top-banner',
+    rect: { left: 0, top: 0, width: W, height: 120 },
+    style: { position: 'absolute', zIndex: '50' },
+  });
+  banner.appendChild(new El('img', { rect: { left: 0, top: 0, width: W, height: 120 } }));
+  w.body.appendChild(banner); w.addHit(banner, 50);
+  w.frame(8);
+  ok('T11 顶部矮横幅保留（交给常驻清理判）', banner.parentNode === w.body);
+})();
+
+// ── T12 body 直接子节点里的 #app 根容器不许动 ──
+(function T12() {
+  const w = runLaunch();
+  const root = new El('div', {
+    id: 'app',
+    rect: { left: 0, top: 0, width: W, height: H },
+    style: { position: 'relative', zIndex: '0' },
+  });
+  root.appendChild(new El('div', { rect: { left: 0, top: 0, width: W, height: H } }));
+  w.body.appendChild(root); w.addHit(root, 0);
+  w.frame(8);
+  ok('T12 #app 根容器不动', root.parentNode === w.body);
 })();
 
 console.log('\n' + (fails === 0 ? 'ALL PASS' : fails + ' FAILED'));
