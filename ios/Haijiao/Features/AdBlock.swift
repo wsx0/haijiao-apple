@@ -141,37 +141,23 @@ enum AdBlock {
     /// 与网络层 css-display-none 同一批选择器；这里带 ` i` 大小写标志，
     /// 因为这是真 CSS 引擎（Content Blocker 那份不认）。
     static let css = """
-    /* 实测到的挡屏物 —— 首帧就藏 */
+    /* 只做一件事：把已知的广告/挡屏容器藏起来。
+       绝不动 html/body/#app 的 height 或 overflow —— 之前的版本就是在这里越改越差：
+       强制 height:auto / overflow:visible 会把站点自己的排版与滚动拆掉。 */
     .topbanmer, .addbox,
     .van-dialog.luodiconfirm, .van-dialog.luodisconfirm,
-    /* 只覆盖「被 vant 锁住」这一种情况，绝不碰 html/body 的默认 overflow。 */
-    body.van-overflow-hidden { overflow-y: auto !important; }
-
-    /* 真机诊断（1.0.17 面板）：b=430x873 cs=430x873 sh=873 ch=873 —— 文档高度 == 视口，
-       可帖子内容明显超过一屏。也就是说站点把 html/body/#app/.pagebox/.indexbox 全设成 100% 高、
-       内容溢出被裁，滚动本该由内部容器负责；在 WKWebView 里这条链断了，于是整页滚不动。
-       这里把高度链放开：内容自然撑开文档，滚动重新交给 WKWebView 的原生 UIScrollView。 */
-    html, body { height: auto !important; min-height: 100% !important; overflow-y: auto !important; }
-    #app, #app > .mobile, #app .pagebox, #app .indexbox {
-        height: auto !important;
-        min-height: 100vh !important;
-        overflow: visible !important;
-    }
-    /* 同域下发的广告位（站点换名字时的兜底） */
     [class*="advert" i], [id*="advert" i],
     [class*="adsbygoogle" i], ins.adsbygoogle,
     [class*="ad-banner" i], [class*="adbanner" i],
-    [class*="ad-box" i], [class*="ad-wrap" i], [class*="ad-container" i],
     [class*="interstitial" i], [class*="guanggao" i],
-    /* 广告 iframe */
     iframe[src*="doubleclick" i], iframe[src*="googlesyndication" i] {
         display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
-        width: 0 !important;
     }
-    """
 
+    /* 唯一保留的「滚动」相关覆盖：站点用 vant 锁住滚动时的兜底。
+       只针对被锁的那个 class，不碰 html/body 的默认值。 */
+    body.van-overflow-hidden { overflow-y: auto !important; }
+    """
     // MARK: - 第 3 层：站点清理（documentStart）
 
     /// 注入时机 .atDocumentStart。
@@ -364,21 +350,6 @@ enum AdBlock {
 
         sweepPrecise();   // 只扫一次；之后完全靠 MutationObserver 事件驱动，空闲时零开销
 
-        // 首页解链：load 后连跑三次，覆盖「首屏异步渲染完才出现溢出」的情况
-        try {
-          var runFree = function () { freeScroller(); };
-          if (document.readyState === 'complete') {
-            runFree();
-            setTimeout(runFree, 400);
-            setTimeout(runFree, 1500);
-          } else {
-            window.addEventListener('load', function () {
-              runFree();
-              setTimeout(runFree, 400);
-              setTimeout(runFree, 1500);
-            }, { once: true });
-          }
-        } catch (e) {}
 
       }
 
@@ -403,43 +374,6 @@ enum AdBlock {
         return out.join(' | ');
       }
 
-      // 「首页内容被裁、文档不可滚」的通用解链（真机证据：进帖子详情就能滚，说明滚动本身没问题，
-      // 是首页某个固定高度容器把内容裁了：sh == ch == 873）。
-      // 只挑「内容比自身高 40px 以上、而且 overflow 会裁掉它」的容器，把高度与溢出放开。
-      // 详情页那种本来就正常的容器，scrollHeight 不会超，所以不会被碰。
-      function freeScroller() {
-        try {
-          var app = document.getElementById('app');
-          if (!app) return;
-          var checked = 0, fixed = 0;
-          (function walk(node) {
-            var kids = node.children;
-            for (var i = 0; i < kids.length; i++) {
-              if (checked > 4000 || fixed >= 12) return;
-              var el = kids[i];
-              checked++;
-              try {
-                if (el.clientHeight >= 120 && el.scrollHeight > el.clientHeight + 40) {
-                  var cs = getComputedStyle(el);
-                  var oy = cs.overflowY;
-                  if (oy === 'hidden' || oy === 'visible' || oy === 'clip') {
-                    el.style.setProperty('height', 'auto', 'important');
-                    el.style.setProperty('max-height', 'none', 'important');
-                    el.style.setProperty('overflow-y', 'visible', 'important');
-                    fixed++;
-                    if (LOG.length < 30) {
-                      LOG.push('free:' + String(el.className || el.id || el.tagName).split(/\\s+/)[0].slice(0, 24));
-                    }
-                  }
-                }
-              } catch (e) {}
-              walk(el);
-            }
-          })(app);
-        } catch (e) {}
-      }
-
-      window.__hj_free = freeScroller;
 
       window.__hj_diag = function () {
         try {

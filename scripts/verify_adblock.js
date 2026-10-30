@@ -573,21 +573,8 @@ function splash(world, opts) {
 })();
 (function S18() {
   const w = runSite();
-  // 首页那种「固定高度 + overflow hidden、内容比自身高」的容器：必须被放开
-  const app = new El('div', { id: 'app' });
-  w.body.appendChild(app);
-  const box = new El('div', {
-    cls: 'indexbox',
-    clientHeight: 844,
-    scrollHeight: 3800,
-    style: { overflowY: 'hidden', height: '844px' },
-    rect: { left: 0, top: 0, width: W, height: 844 },
-  });
-  app.appendChild(box);
-  w.fireWin('load');
-  w.frame(60);                        // 1.8s，覆盖 400/1500 两个时间点
-  ok('S18 裁剪容器被放开高度', box.style.height === 'auto', 'height=' + box.style.height);
-  ok('S18 裁剪容器 overflow 放开', box.style.overflowY === 'visible', 'ov=' + box.style.overflowY);
+  // 1.0.20 回滚了所有布局侵入：不该再有任何「改容器高度/溢出」的入口
+  ok('S18 不再有布局解链入口', typeof w.sandbox.window.__hj_free === 'undefined');
 })();
 // ───────────────────────── 5. documentEnd：收尾清理 ─────────────────────────
 (function E1() {
