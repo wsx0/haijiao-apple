@@ -2,15 +2,50 @@
 //  RootView.swift
 //  Haijiao
 //
-//  极简外壳：全屏 WebView + 顶部进度条 + 底部浮动导航（返回 / 前进 / 刷新 / 主页）。
-//  不做任何业务改版 —— 站点长什么样就是什么样。
+//  两种首页：
+//    · native —— 原生列表，直接打站点接口（默认）。列表滚动由 UICollectionView 负责，
+//                不再经过 WKWebView，所以「进页面要等一会才能划」的问题从根上不存在。
+//    · web    —— 原来的 WKWebView 套壳（去广告、视频全屏都在），点条目看详情走它。
+//  右上角 safari 图标 / 底部 list 图标可以互相切换。
 //
 
 import SwiftUI
 import WebKit
 
 struct RootView: View {
-    private static let homeURL = HJWeb.home
+    @AppStorage("hj.mode") private var mode: String = "native"
+    @State private var webURL: URL = HJWeb.home
+
+    var body: some View {
+        ZStack {
+            if mode == "native" {
+                NativeHomeView(
+                    onOpen: { url in
+                        webURL = url ?? HJWeb.home
+                        mode = "web"
+                    },
+                    onSwitchToWeb: {
+                        webURL = HJWeb.home
+                        mode = "web"
+                    }
+                )
+            } else {
+                WebHomeView(
+                    initialURL: webURL,
+                    onSwitchToNative: { mode = "native" }
+                )
+            }
+        }
+    }
+}
+
+// MARK: - 网页版
+
+struct WebHomeView: View {
+    /// 打开时用的地址（来自原生列表点进来的详情，或首页）
+    let initialURL: URL
+    /// 切回原生列表
+    let onSwitchToNative: () -> Void
 
     @State private var progress: Double = 0
     @State private var canGoBack = false
@@ -30,7 +65,7 @@ struct RootView: View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
 
-            LegacyWebView(url: Self.homeURL,
+            LegacyWebView(url: initialURL,
                           progress: $progress,
                           canGoBack: $canGoBack,
                           canGoForward: $canGoForward,
@@ -42,7 +77,7 @@ struct RootView: View {
                           diag: $diag)
                 .ignoresSafeArea(edges: .bottom)
 
-            // 诊断面板：启动后前 12 秒显示（不影响触摸），截图就能看出滚动几何到底卡在哪
+            // 诊断面板：启动后前 20 秒显示（不影响触摸）
             if diagVisible, !diag.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(diag)
@@ -73,7 +108,7 @@ struct RootView: View {
             if showBar {
                 VStack {
                     Spacer()
-                    HStack(spacing: 26) {
+                    HStack(spacing: 22) {
                         barButton("chevron.left", enabled: canGoBack) {
                             NotificationCenter.default.post(name: .hjGoBack, object: nil)
                         }
@@ -86,11 +121,15 @@ struct RootView: View {
                         barButton("house.fill", enabled: true) {
                             NotificationCenter.default.post(name: .hjHome, object: nil)
                         }
-                        barButton(showBar ? "eye.slash" : "eye", enabled: true) {
+                        // 回原生列表
+                        barButton("list.bullet", enabled: true) {
+                            onSwitchToNative()
+                        }
+                        barButton("eye.slash", enabled: true) {
                             withAnimation { showBar = false }
                         }
                     }
-                    .padding(.horizontal, 22)
+                    .padding(.horizontal, 18)
                     .padding(.vertical, 10)
                     .background(.ultraThinMaterial, in: Capsule())
                     .padding(.bottom, 18)
@@ -100,18 +139,13 @@ struct RootView: View {
         }
         .statusBarHidden(false)
         .task {
-            // 先编译规则；编译失败就是空数组，照样放行（退回 CSS/JS 两层）。
             ruleLists = await AdBlock.makeRuleLists()
             rulesReady = true
         }
         .task {
-            // 20 秒后自动收起诊断面板（够看清启动阶段的变化）
             try? await Task.sleep(nanoseconds: 20_000_000_000)
             diagVisible = false
         }
-        // 双击隐藏/显示底部导航栏 —— 由 WKWebView 上的 UITapGestureRecognizer 触发
-        // （cancelsTouchesInView = false），不再用 SwiftUI 的整屏 onTapGesture：
-        // 那个手势会先把点击吃掉再判定，导致进页面第一下点不动。
         .persistentSystemOverlays(.hidden)
     }
 
