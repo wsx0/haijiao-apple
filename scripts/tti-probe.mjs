@@ -50,7 +50,8 @@ const SITE_JS = unswift(sliceBlock('static let siteJS = """'));
 async function probe(label, opts) {
   const throttle = opts.throttle || 0;
   const inject = !!opts.inject;
-  const blockHeavy = !!opts.blockHeavy;
+  const heavy = opts.heavy || [];
+  const blockHeavy = heavy.length > 0;
 
   const browser = await chromium.launch({ headless: true, args: ['--disable-blink-features=AutomationControlled', '--no-sandbox'] });
   const ctx = await browser.newContext({
@@ -59,7 +60,7 @@ async function probe(label, opts) {
   });
   const page = await ctx.newPage();
   for (const p of BLOCK) await page.route(p, r => r.abort());
-  if (blockHeavy) for (const p of HEAVY) await page.route(p, r => r.abort());
+  for (const p of heavy) await page.route(p, r => r.abort());
 
   if (throttle) {
     const cdp = await ctx.newCDPSession(page);
@@ -158,7 +159,8 @@ const runs = [];
 runs.push(await probe('A-1x', { throttle: 0, inject: true }));
 runs.push(await probe('B-4x', { throttle: 4, inject: true }));
 runs.push(await probe('C-4x-nojs', { throttle: 4, inject: false }));
-runs.push(await probe('D-4x-heavy-blocked', { throttle: 4, inject: true, blockHeavy: true }));
+runs.push(await probe('D-4x-dash-only', { throttle: 4, inject: true, heavy: ['**/dash.all.min.js'] }));
+runs.push(await probe('E-4x-uploader-only', { throttle: 4, inject: true, heavy: ['**/webuploader.min.js'] }));
 
 await fs.writeFile(path.join(OUT, 'tti.json'), JSON.stringify(runs, null, 2));
 for (const r of runs) {
