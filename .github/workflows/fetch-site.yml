@@ -13,6 +13,7 @@ on:
       - 'scripts/fetch-site.mjs'
       - 'scripts/fetch-site2.mjs'
       - 'scripts/fetch-site3.mjs'
+      - 'scripts/perf-probe.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -44,6 +45,9 @@ jobs:
       - name: 网页端彻底去广告（C 组）
         run: node scripts/fetch-site3.mjs
 
+      - name: 首屏性能 A/B
+        run: node scripts/perf-probe.mjs
+
       - name: 摘要
         if: always()
         run: |
@@ -52,7 +56,7 @@ jobs:
           echo "--- 浮层数量 ---"
           for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
           echo "--- A/B 结果 ---"
-          ls -la out2/ out3/ || true
+          ls -la out2/ out3/ out4/ || true
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -62,5 +66,6 @@ jobs:
             out/
             out2/
             out3/
+            out4/
           if-no-files-found: warn
           retention-days: 14

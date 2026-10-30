@@ -18,10 +18,9 @@ struct RootView: View {
     @State private var title = ""
     @State private var reloadToken = 0
     @State private var showBar = true
-    @State private var lastTap: Date = .distantPast
     /// 广告拦截规则（网络层 + 开屏 css-display-none）。编译是异步的。
     @State private var ruleLists: [WKContentRuleList] = []
-    /// 规则编译是否已结束（成功或失败都算结束）——WebView 等它变 true 再导航首页
+    /// 规则编译是否已结束（成功或失败都算结束）
     @State private var rulesReady = false
 
     var body: some View {
@@ -35,7 +34,8 @@ struct RootView: View {
                           title: $title,
                           reloadToken: reloadToken,
                           ruleLists: ruleLists,
-                          rulesReady: rulesReady)
+                          rulesReady: rulesReady,
+                          onDoubleTap: { withAnimation { showBar.toggle() } })
                 .ignoresSafeArea(edges: .bottom)
 
             // 顶部进度条
@@ -82,18 +82,12 @@ struct RootView: View {
         .statusBarHidden(false)
         .task {
             // 先编译规则；编译失败就是空数组，照样放行（退回 CSS/JS 两层）。
-            // 编译完通知 WebView 去挂规则 + 导航首页，保证首屏请求已经带着拦截规则。
             ruleLists = await AdBlock.makeRuleLists()
             rulesReady = true
         }
-        .onTapGesture {
-            // 双击（间隔内连点两次）切换导航栏
-            let now = Date()
-            if now.timeIntervalSince(lastTap) < 0.35 {
-                withAnimation { showBar.toggle() }
-            }
-            lastTap = now
-        }
+        // 双击隐藏/显示底部导航栏 —— 由 WKWebView 上的 UITapGestureRecognizer 触发
+        // （cancelsTouchesInView = false），不再用 SwiftUI 的整屏 onTapGesture：
+        // 那个手势会先把点击吃掉再判定，导致进页面第一下点不动。
         .persistentSystemOverlays(.hidden)
     }
 

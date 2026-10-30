@@ -73,6 +73,16 @@ enum AdBlock {
     ///
     /// 规则列表里只要有一条解析不了，整份编译就失败、返回 nil。拆开以后，
     /// CSS 选择器万一被 WebKit 挑刺，也丢不掉「banner 数据源 + 统计域」的拦截。
+    /// 规则文本的稳定摘要（FNV-1a）。内容变了 identifier 才变，缓存才有意义。
+    private static func digest(_ text: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return String(hash, radix: 16)
+    }
+
     static func makeRuleLists() async -> [WKContentRuleList] {
         var lists: [WKContentRuleList] = []
         // WKContentRuleListStore.default() 返回 optional，先解开
@@ -82,16 +92,31 @@ enum AdBlock {
             #"{"trigger":{"url-filter":".*","if-domain":["*\#(host)"]},"action":{"type":"block"}}"#
         }
         let netJSON = "[" + (hostRules + adPathRules).joined(separator: ",") + "]"
-        if let net = try? await store.compileContentRuleList(
-            forIdentifier: "haijiao-adblock-net", encodedContentRuleList: netJSON) {
+        let netID = "hj-net-" + digest(netJSON)
+
+        // 先查编译缓存：WebKit 编译过的规则会落盘，命中就零编译直接加载。
+        // 二次启动时这一步把「解析 + 编译 53 条规则」整个省掉，规则能赶在首屏请求前就位。
+        let cachedNet = (try? await store.lookUpContentRuleList(forIdentifier: netID)) ?? nil
+        if let cachedNet {
+            lists.append(cachedNet)
+        } else if let net = try? await store.compileContentRuleList(
+            forIdentifier: netID, encodedContentRuleList: netJSON) {
             lists.append(net)
         }
 
         let cssJSON = #"{"trigger":{"url-filter":".*"},"action":{"type":"css-display-none","selector":"\#(splashSelectors)"}}"#
-        if let css = try? await store.compileContentRuleList(
-            forIdentifier: "haijiao-adblock-css", encodedContentRuleList: "[" + cssJSON + "]") {
+        let cssID = "hj-css-" + digest(cssJSON)
+        let cachedCss = (try? await store.lookUpContentRuleList(forIdentifier: cssID)) ?? nil
+        if let cachedCss {
+            lists.append(cachedCss)
+        } else if let css = try? await store.compileContentRuleList(
+            forIdentifier: cssID, encodedContentRuleList: "[" + cssJSON + "]") {
             lists.append(css)
         }
+
+        // 清掉旧 identifier 留下的缓存，免得越积越多
+        try? await store.removeContentRuleList(forIdentifier: "haijiao-adblock-net")
+        try? await store.removeContentRuleList(forIdentifier: "haijiao-adblock-css")
         return lists
     }
 
@@ -249,8 +274,8 @@ enum AdBlock {
         var n = 0;
         var t = setInterval(function () {
           sweepPrecise();
-          if (++n >= 20) { try { clearInterval(t); } catch (e) {} }
-        }, 350);
+          if (++n >= 10) { try { clearInterval(t); } catch (e) {} }
+        }, 600);
       }
 
       window.__hj_strip_now = sweepPrecise;
@@ -297,8 +322,11 @@ enum AdBlock {
         dropAdNodes();
         if (window.__hj_strip_now) { try { window.__hj_strip_now(); } catch (e) {} }
       }
-      tick();
-      setInterval(tick, 2500);
+      // 延后 600ms 启动：documentEnd 正好是站点渲染首屏的时刻，别在这时候抢主线程。
+      setTimeout(function () {
+        tick();
+        setInterval(tick, 2500);
+      }, 600);
 
       // 5) body 直接子节点变动就清一次（去抖 300ms；不开 subtree，避免站点首屏把回调打爆）
       try {

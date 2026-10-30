@@ -20,6 +20,8 @@ struct LegacyWebView: UIViewControllerRepresentable {
     let ruleLists: [WKContentRuleList]
     /// 规则是否已编译完（编译失败也算「完」——那时 ruleLists 是空数组）
     let rulesReady: Bool
+    /// 双击网页区域时回调（切换底部导航栏），由 UIKit 手势触发，不抢单击
+    let onDoubleTap: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -119,6 +121,18 @@ struct LegacyWebView: UIViewControllerRepresentable {
             w.customUserAgent = HJWeb.mobileUA
 
             w.translatesAutoresizingMaskIntoConstraints = false
+            // 长按链接预览会在首屏额外发请求、还会吃掉长按手势，关掉
+            w.allowsLinkPreview = false
+
+            // 双击切换导航栏：用 UIKit 识别器，且不吞单击
+            //（SwiftUI 的整屏 onTapGesture 会先判定再透传，进页面第一下点不动就是这个原因）
+            let doubleTap = UITapGestureRecognizer(
+                target: coordinator, action: #selector(Coordinator.handleDoubleTap))
+            doubleTap.numberOfTapsRequired = 2
+            doubleTap.cancelsTouchesInView = false
+            doubleTap.delaysTouchesEnded = false
+            w.addGestureRecognizer(doubleTap)
+
             view.addSubview(w)
             NSLayoutConstraint.activate([
                 w.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -170,6 +184,12 @@ struct LegacyWebView: UIViewControllerRepresentable {
             self.parent = parent
         }
 
+        /// 双击网页区域：切换底部导航栏。
+        /// 用 UIKit 手势（cancelsTouchesInView = false），单击照常透传给 WebView。
+        @objc func handleDoubleTap() {
+            parent.onDoubleTap()
+        }
+
         deinit {
             tokens.forEach { NotificationCenter.default.removeObserver($0) }
         }
@@ -194,7 +214,14 @@ struct LegacyWebView: UIViewControllerRepresentable {
         func observe(_ web: WKWebView) {
             observations.append(web.observe(\.estimatedProgress, options: [.new]) { [weak self] w, _ in
                 let p = w.estimatedProgress
-                DispatchQueue.main.async { self?.parent.progress = p }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    // 节流：一个重页面加载会回调几十次，每次都推给 SwiftUI 就是几十次
+                    // body 重算 + updateUIViewController。只有跨过 0.02 或到边界才更新。
+                    let delta = abs(p - self.parent.progress)
+                    if delta < 0.02 && p > 0.01 && p < 0.99 { return }
+                    self.parent.progress = p
+                }
             })
             observations.append(web.observe(\.canGoBack, options: [.new]) { [weak self] w, _ in
                 let v = w.canGoBack

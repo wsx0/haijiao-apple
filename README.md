@@ -33,7 +33,7 @@ python3 tools/gen_ios_xcodeproj.py --verify
 | 手势 | `allowsBackForwardNavigationGestures = true`，右滑返回 |
 | 错误页 | 加载失败给可点重试的 HTML |
 
-## 去广告（1.0.7 —— 规则全部来自实测）
+## 去广告（1.0.8 —— 规则全部来自实测）
 
 **先说结论**：站点没有「全屏开屏广告图」。真正挡屏的是三个东西，2026-10-30 在 CI 上用
 Playwright 渲染 + A/B/C 三组对比实拍确认：
@@ -126,3 +126,17 @@ node scripts/verify_adblock.js
 
 1.0.7 在没有 `.van-dialog` / `.van-popup` 时强制解锁（顺手清掉失去配对兄弟的 `.van-overlay`）；
 存在真弹窗（登录框之类）时一律不碰。回归里 S9/S10 两条用例专门盯这个。
+
+### 1.0.8：又优化了一轮启动与交互
+
+| 优化 | 为什么 |
+|---|---|
+| **整屏 `onTapGesture` 换成 WKWebView 上的 `UITapGestureRecognizer`**（`cancelsTouchesInView=false`） | 原来双击隐藏导航栏的手势挂在整屏 ZStack 上，SwiftUI 会**先判定点击再透传**，进页面第一下经常点不动。UIKit 识别器不吞单击。 |
+| 规则 identifier 带内容摘要 + 先 `lookUpContentRuleList` | 编译过的规则 WebKit 会落盘，命中就零编译。二次启动规则能赶在首屏请求前就位，不再每次重编译 53 条。 |
+| `estimatedProgress` 节流（变化 <0.02 不推） | 加载一个重页面会回调几十次，每次都触发 SwiftUI body 重算 + `updateUIViewController`，纯属浪费。 |
+| `allowsLinkPreview = false` | 长按链接预览会在首屏额外发请求，还吃掉长按手势。 |
+| `siteJS` 兜底 600ms×10（6 秒） | 首屏期间少扫一半；即时清理仍靠 `MutationObserver`（body 直接子节点）。 |
+| `documentEnd` 脚本延后 600ms 启动 | documentEnd 正是站点渲染首屏的时刻，别在这时候抢 WebContent 主线程。 |
+
+量化脚本 `scripts/perf-probe.mjs`：同一台 CI 机器上跑 A（原样）/ B（去广告），
+输出 FCP、DCL、load、请求数、传输字节、longtask 次数与总时长、DOM 节点数。

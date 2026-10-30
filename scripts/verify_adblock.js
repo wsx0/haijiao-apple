@@ -403,7 +403,7 @@ function splash(world, opts) {
   const inner = new El('div', { cls: 'topbanmer' });
   app.appendChild(inner);
   ok('S6 兜底前它还在', inner.parentNode === app);
-  w.frame(20);                      // 600ms，覆盖一个 400ms 兜底
+  w.frame(25);                      // 750ms，覆盖一个 600ms 兜底
   ok('S6 #app 内部的 .topbanmer 被兜底摘掉', inner.parentNode === null,
      JSON.stringify(w.sandbox.window.__hj_strip_log));
 })();
@@ -485,7 +485,7 @@ function splash(world, opts) {
   const w = runEnd();
   const frame1 = new El('iframe', { attrs: { src: 'https://ad.doubleclick.net/x' } });
   w.body.appendChild(frame1);
-  w.frame(10);
+  w.frame(16);
   ok('E2 广告 iframe 被清掉', frame1.parentNode === null);
 })();
 
