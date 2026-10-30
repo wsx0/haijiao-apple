@@ -11,6 +11,7 @@ on:
     paths:
       - '.github/workflows/fetch-site.yml'
       - 'scripts/fetch-site.mjs'
+      - 'scripts/fetch-site2.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -36,6 +37,9 @@ jobs:
       - name: 抓取
         run: node scripts/fetch-site.mjs
 
+      - name: 去广告 A/B 实验
+        run: node scripts/fetch-site2.mjs
+
       - name: 摘要
         if: always()
         run: |
@@ -43,11 +47,15 @@ jobs:
           ls -laR out | head -60 || true
           echo "--- 浮层数量 ---"
           for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
+          echo "--- A/B 结果 ---"
+          ls -la out2/ || true
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: site-dump-${{ github.run_number }}
-          path: out/
+          path: |
+            out/
+            out2/
           if-no-files-found: warn
           retention-days: 14
