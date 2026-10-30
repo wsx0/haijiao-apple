@@ -140,6 +140,10 @@ enum AdBlock {
     /* 实测到的挡屏物 —— 首帧就藏 */
     .topbanmer, .addbox,
     .van-dialog.luodiconfirm, .van-dialog.luodisconfirm,
+    /* 滚动硬兜底：vant 的 .van-overflow-hidden{overflow:hidden!important} 一旦残留，
+       WKWebView 的 contentSize 就被限死，整页划不动。这条特异性更高，直接把 Y 方向放开，
+       不等 JS 去解锁（JS 那条路还有"弹窗还在时不动手"的时序问题）。 */
+    body.van-overflow-hidden { overflow-y: auto !important; }
     /* 同域下发的广告位（站点换名字时的兜底） */
     [class*="advert" i], [id*="advert" i],
     [class*="adsbygoogle" i], ins.adsbygoogle,
