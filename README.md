@@ -49,3 +49,14 @@ python3 tools/gen_ios_xcodeproj.py --verify
 调试：Safari 连上设备 → Web Inspector → 控制台执行 `__hj_scan()` 手动再扫一轮，
 `__hj_splash_kills` 是本次启动被拆掉的层（id/class 片段）。
 
+改完 JS 别急着推，先在本机跑回归（不需要 Mac / 不需要浏览器）：
+
+```bash
+node scripts/verify_adblock.js
+```
+
+它会按 Swift 多行字符串语义把 `launchJS` / `js` 抽出来，检查「Swift 不认的反斜杠」
+（这类错误会让 Xcode 直接编译失败），再验 WKContentRuleList 的 JSON、造一个最小 DOM
+跑开屏杀手：杀开屏 / 不误伤登录框与协议页 / 用户触碰后停手 / 20 秒窗口 / 限次 12 层。
+
+
