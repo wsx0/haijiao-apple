@@ -115,6 +115,9 @@ struct LegacyWebView: UIViewControllerRepresentable {
             w.uiDelegate = coordinator
             w.allowsBackForwardNavigationGestures = true
             w.scrollView.contentInsetAdjustmentBehavior = .never
+            // 触摸不要被 UIScrollView 延后（默认 delaysContentTouches = true 会压 150ms 才把事件递给内容）
+            w.scrollView.delaysContentTouches = false
+            w.scrollView.canCancelContentTouches = true
             w.isOpaque = false
             w.backgroundColor = .black
             w.scrollView.backgroundColor = .black

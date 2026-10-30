@@ -15,6 +15,7 @@ on:
       - 'scripts/fetch-site3.mjs'
       - 'scripts/perf-probe.mjs'
       - 'scripts/scroll-probe.mjs'
+      - 'scripts/tti-probe.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -52,6 +53,9 @@ jobs:
       - name: 滚动诊断
         run: node scripts/scroll-probe.mjs
 
+      - name: 首屏可交互时间（CPU 4x）
+        run: node scripts/tti-probe.mjs
+
       - name: 摘要
         if: always()
         run: |
@@ -60,7 +64,7 @@ jobs:
           echo "--- 浮层数量 ---"
           for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
           echo "--- A/B 结果 ---"
-          ls -la out2/ out3/ out4/ out5/ || true
+          ls -la out2/ out3/ out4/ out5/ out6/ || true
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -72,5 +76,6 @@ jobs:
             out3/
             out4/
             out5/
+            out6/
           if-no-files-found: warn
           retention-days: 14
