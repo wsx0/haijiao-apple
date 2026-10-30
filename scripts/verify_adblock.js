@@ -319,8 +319,9 @@ function makeWorld() {
   }
   function touch() { for (const l of listeners) if (/touchstart|pointerdown/.test(l.evt)) l.fn({ type: l.evt }); }
   function fireDoc(evt) { for (const l of docListeners.slice()) if (l.evt === evt) l.fn({ type: evt }); }
+  function fireWin(evt) { for (const l of listeners.slice()) if (l.evt === evt) l.fn({ type: evt }); }
 
-  return { sandbox, document, body, head, html, addHit, frame, touch, fireDoc, clock, hits, win, timers };
+  return { sandbox, document, body, head, html, addHit, frame, touch, fireDoc, fireWin, clock, hits, win, timers };
 }
 
 function runLaunch() {
@@ -554,6 +555,15 @@ function splash(world, opts) {
   w.frame(14);
   ok('S16 小面板不阻止解锁', w.body.className.indexOf('van-overflow-hidden') < 0,
      'class="' + w.body.className + '"');
+})();
+(function S17() {
+  const w = runSite();
+  ok('S17 首屏 spacer 注入', !!w.document.getElementById('__hj_spacer'));
+  w.fireWin('load');
+  w.frame(140);                       // 4.2s
+  ok('S17 load 后 4 秒撤掉 spacer', !w.document.getElementById('__hj_spacer'));
+  const d = w.sandbox.window.__hj_diag();
+  ok('S17 __hj_diag 可用', !!d && typeof d.innerHeight === 'number' && ('spacer' in d), JSON.stringify(d).slice(0, 110));
 })();
 // ───────────────────────── 5. documentEnd：收尾清理 ─────────────────────────
 (function E1() {

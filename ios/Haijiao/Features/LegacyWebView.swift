@@ -123,9 +123,13 @@ struct LegacyWebView: UIViewControllerRepresentable {
             w.scrollView.backgroundColor = .black
             w.customUserAgent = HJWeb.mobileUA
 
-            w.translatesAutoresizingMaskIntoConstraints = false
             // 长按链接预览会在首屏额外发请求、还会吃掉长按手势，关掉
             w.allowsLinkPreview = false
+            // 布局用 frame + autoresizing，不用约束：SwiftUI 首帧给到 0 尺寸时，
+            // WKWebView 的 bounds 为 0，滚动会彻底失效（要等下一次 layout 才恢复）。
+            w.translatesAutoresizingMaskIntoConstraints = true
+            w.frame = view.bounds
+            w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 
             // 双击切换导航栏：用 UIKit 识别器，且不吞单击
             //（SwiftUI 的整屏 onTapGesture 会先判定再透传，进页面第一下点不动就是这个原因）
@@ -137,12 +141,6 @@ struct LegacyWebView: UIViewControllerRepresentable {
             w.addGestureRecognizer(doubleTap)
 
             view.addSubview(w)
-            NSLayoutConstraint.activate([
-                w.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                w.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                w.topAnchor.constraint(equalTo: view.topAnchor),
-                w.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            ])
             self.web = w
 
             coordinator.attach(web: w, container: self)
@@ -163,6 +161,22 @@ struct LegacyWebView: UIViewControllerRepresentable {
             ucc.removeAllContentRuleLists()
             for list in lists { ucc.add(list) }
         }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            guard let w = web else { return }
+            if w.frame != view.bounds { w.frame = view.bounds }
+            // 内容尺寸小于视口时（首屏还没长出来），日志里能看出来
+            let scroll = w.scrollView
+            if scroll.contentSize.height < scroll.bounds.height, scroll.bounds.height > 0 {
+                if diagLog.count < 20 {
+                    diagLog.append("contentSize \(Int(scroll.contentSize.height)) < bounds \(Int(scroll.bounds.height))")
+                }
+            }
+        }
+
+        /// 供 JS 侧读取的滚动诊断（配合 window.__hj_diag()）
+        var diagLog: [String] = []
 
         /// 首次 = 导航到首页；之后 = reload（刷新按钮用）
         func startIfNeeded() {

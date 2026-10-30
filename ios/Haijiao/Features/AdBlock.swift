@@ -144,10 +144,12 @@ enum AdBlock {
     /* 实测到的挡屏物 —— 首帧就藏 */
     .topbanmer, .addbox,
     .van-dialog.luodiconfirm, .van-dialog.luodisconfirm,
-    /* 滚动硬兜底：vant 的 .van-overflow-hidden{overflow:hidden!important} 一旦残留，
-       WKWebView 的 contentSize 就被限死，整页划不动。这条特异性更高，直接把 Y 方向放开，
-       不等 JS 去解锁（JS 那条路还有"弹窗还在时不动手"的时序问题）。 */
-    body.van-overflow-hidden { overflow-y: auto !important; }
+    /* 滚动硬兜底（底层）：
+       1) 特异性格外高，压过 vant 的 .van-overflow-hidden{overflow:hidden!important}
+       2) 用 scroll 而不是 auto —— auto 在内容高度不足视口时 WebKit 直接判定「不可滚」，
+          表现就是手指划上去毫无反应；scroll 会立刻建立可滚的滚动容器。
+       3) html 也放开：站点有些页面只锁 html。 */
+    html, body, body.van-overflow-hidden { overflow-y: scroll !important; }
     /* 同域下发的广告位（站点换名字时的兜底） */
     [class*="advert" i], [id*="advert" i],
     [class*="adsbygoogle" i], ins.adsbygoogle,
@@ -360,6 +362,43 @@ enum AdBlock {
           if (++n >= 15) { try { clearInterval(t); } catch (e) {} }
         }, 300);
       }
+
+      // ── 底层兜底：首屏撑高 ────────────────────────────────────────────
+      // 站点首屏的根容器是 height: <视口高>，DOM 还没长出来时 UIScrollView 的 contentSize
+      // 就等于视口高度 —— 此时手指怎么划都不会动（观感就是「等一会才能划」）。
+      // 这里在前几秒把文档撑到 2.2 屏高，让滚动立刻可用；load 后 4 秒撤掉，不影响真实布局。
+      (function () {
+        try {
+          var st = document.createElement('style');
+          st.id = '__hj_spacer';
+          st.textContent = 'html,body{min-height:220vh !important;}';
+          (document.head || document.documentElement).appendChild(st);
+          var drop = function () {
+            try { var s = document.getElementById('__hj_spacer'); if (s) s.remove(); } catch (e) {}
+          };
+          if (document.readyState === 'complete') setTimeout(drop, 1200);
+          else window.addEventListener('load', function () { setTimeout(drop, 4000); }, { once: true });
+          setTimeout(drop, 12000);   // 最后一道：无论如何 12 秒后撤掉
+        } catch (e) {}
+      })();
+
+      window.__hj_diag = function () {
+        try {
+          var se = document.scrollingElement || document.documentElement;
+          return {
+            scrollHeight: se.scrollHeight,
+            clientHeight: se.clientHeight,
+            innerHeight: window.innerHeight,
+            bodyClass: String(document.body.className),
+            bodyOverflow: getComputedStyle(document.body).overflowY,
+            htmlOverflow: getComputedStyle(document.documentElement).overflowY,
+            spacer: !!document.getElementById('__hj_spacer'),
+            overlays: document.querySelectorAll('.van-overlay').length,
+            modalVisible: hasVisibleModal(),
+            log: LOG.slice(-10),
+          };
+        } catch (e) { return { error: String(e) }; }
+      };
 
       window.__hj_strip_now = sweepPrecise;
       if (document.body) start();
