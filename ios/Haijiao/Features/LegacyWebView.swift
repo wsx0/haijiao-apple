@@ -65,19 +65,18 @@ struct LegacyWebView: UIViewControllerRepresentable {
             cfg.defaultWebpagePreferences.allowsContentJavaScript = true
 
             // ── 去广告 ──────────────────────────────────────
-            // 第 1 层：网络层规则（域名 + 广告路径 + 开屏 css-display-none，已拆成两份编译）
+            // 规则全部来自对 haijiao.com 的实测（CI 上 Playwright 渲染 + A/B/C 对比）：
+            //   顶部博彩横幅 .topbanmer / 底部 PWA 条 .addbox / 开屏三连弹窗 .van-dialog.luodi*
+            // 第 1 层：网络层规则（banner 数据源 + banner 图片 + 广告统计域 + css-display-none）
             for list in ruleLists {
                 cfg.userContentController.add(list)
             }
-            // 第 2 层：开屏杀手 —— documentStart，跑在站点脚本之前
-            //   · 不认 class 名，靠 elementsFromPoint 几何判定「谁盖住视口」
-            //   · 只在启动窗口内、用户未操作时动手，限次 12 层
-            let splashScript = WKUserScript(
-                source: AdBlock.launchJS,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true)
+            // 第 2 层（可选）：几何开屏杀手 —— 站点目前没有全屏浮层，默认关
             if AdBlock.splashKillerEnabled {
-                cfg.userContentController.addUserScript(splashScript)
+                cfg.userContentController.addUserScript(WKUserScript(
+                    source: AdBlock.launchJS,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true))
             }
             // 第 3 层：CSS 立刻隐藏（纯样式，零 CPU 成本）
             let cssScript = WKUserScript(
@@ -92,10 +91,14 @@ struct LegacyWebView: UIViewControllerRepresentable {
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: false)
             cfg.userContentController.addUserScript(cssScript)
-            // 第 4 层：JS 常驻清理（低开销版）
-            //   · 只扫 body 的直接子元素，不再遍历全站
-            //   · 前 8 秒 300ms 一次，之后 2 秒
-            //   · 每个节点只判定一次，避免反复强制布局
+            // 第 4 层：精确清理 —— documentStart，盯新增节点删 .topbanmer/.addbox、点掉 luodi 弹窗
+            //   · 只看 body 直接子节点的 childList，不开 subtree，不做几何测量
+            //   · 20 秒后自动断开，另有 400ms × 40 次兜底
+            cfg.userContentController.addUserScript(WKUserScript(
+                source: AdBlock.siteJS,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true))
+            // 第 5 层：收尾清理 —— documentEnd，封 window.open、清广告 iframe、每 1.5 秒兜底
             let jsScript = WKUserScript(
                 source: AdBlock.js,
                 injectionTime: .atDocumentEnd,

@@ -5,10 +5,12 @@
 ## 结构
 
 ```
-ios/Haijiao/          源文件（3 个 swift + Info.plist + AppIcon）
+ios/Haijiao/          源文件（4 个 swift + Info.plist + AppIcon）
 tools/                幂等的 Xcode 工程生成器
 scripts/build-ipa.sh  未签名 ipa 构建
-.github/workflows/    自动出包
+scripts/verify_adblock.js   去广告规则的本机回归（不需要 Mac）
+scripts/fetch-site*.mjs     抓站点真实结构（借 CI 的海外 runner）
+.github/workflows/    build-ipa.yml（出包）/ fetch-site.yml（抓页面做研究）
 ```
 
 ## 本地构建
@@ -18,7 +20,7 @@ python3 tools/gen_ios_xcodeproj.py --verify
 ./scripts/build-ipa.sh --unsigned
 ```
 
-产物在 `build/Haijiao-1.0.0-unsigned.ipa`。
+产物在 `build/Haijiao-$(VERSION)-unsigned.ipa`。
 
 ## 关键实现
 
@@ -31,42 +33,60 @@ python3 tools/gen_ios_xcodeproj.py --verify
 | 手势 | `allowsBackForwardNavigationGestures = true`，右滑返回 |
 | 错误页 | 加载失败给可点重试的 HTML |
 
-## 去开屏广告（1.0.3）
+## 去广告（1.0.4 —— 规则全部来自实测）
 
-四层，全部在 `ios/Haijiao/Features/AdBlock.swift`：
+**先说结论**：站点没有「全屏开屏广告图」。真正挡屏的是三个东西，2026-10-30 在 CI 上用
+Playwright 渲染 + A/B/C 三组对比实拍确认：
 
-| 层 | 机制 | 生效时机 |
+| 挡屏物 | 容器 | 来源 |
 |---|---|---|
-| 1 | `WKContentRuleList`：广告域 + 广告路径（`/ad/`、`/kaiping`、`/upload/ad`…）+ `css-display-none` 开屏选择器 | 请求发出前 / 首帧 |
-| 2 | 启动期开屏杀手：`document.elementsFromPoint` 在视口 6 个点取样，往上找「铺满视口且 fixed/absolute/高 z-index」的层，先点跳过再整层移除 | `atDocumentStart`，站点脚本之前 |
-| 3 | 注入 CSS：开屏 / 广告位容器整块 `display:none` | `atDocumentStart` |
-| 4 | 常驻清理：定时拆动态弹窗、横幅、广告 iframe，封 `window.open`，点掉「我知道了」 | `atDocumentEnd` |
+| 顶部博彩横幅 | `.topbanmer`（内含 `.my-swipe.van-swipe` + `.crossbutton`） | `POST /api/banner/banner_list` → `pic.*.top/hjstore/system/banner/*.gif.txt` |
+| 底部 PWA 引导条 | `.addbox` | 「添加海角社区到主屏幕」 |
+| 开屏三连弹窗 | `.van-dialog.luodiconfirm` → `.van-dialog.luodisconfirm` | `this.$dialog.alert({...confirmButtonText:"我知道了", className:"luodiconfirm"})` |
 
-第 2 层是这次新增的核心：**不依赖 class 名**（站点改个名就废），只看几何
-——谁盖住视口就是谁。护栏：只在启动 20 秒内、用户还没碰屏幕时动手，最多拆 12 层，
-碰到 `input/textarea/select/video` 或名字含 login/pay/player 的层一律放过。
+四层，代码都在 `ios/Haijiao/Features/AdBlock.swift`：
 
-> 1.0.2 还要修一个时序坑：`UIViewControllerRepresentable.makeUIViewController` 只在视图首次
-> 出现时调一次，旧版在 `.task` 里异步编译规则 → WebView 早已建好，规则一条都没挂上，
-> **网络层拦截和 css-display-none 全程空转**。现在规则编译完才创建 WebView，
-> `updateUIViewController` 里再兜一层（规则数变化就补挂 + reload）。
+| 层 | 机制 | 时机 |
+|---|---|---|
+| 1 | `WKContentRuleList`：block `/api/banner/banner_list`、`hjstore/system/banner/`、广告统计域；`css-display-none` 上面三个容器 | 请求发出前 / 首帧 |
+| 2 | 注入 CSS（同一批选择器，带 ` i` 兜大小写） | 首帧 |
+| 3 | `siteJS`：MutationObserver 盯 **body 直接子节点**的新增，`.topbanmer`/`.addbox` 立即摘、`.van-dialog.luodi*` 点确认再摘；另有 400ms × 40 次精确选择器兜底 | `atDocumentStart` |
+| 4 | `js`：封 `window.open`、过滤广告 alert、清广告 iframe、每 1.5 秒兜底 | `atDocumentEnd` |
 
+性能红线（这 App 曾因强制布局闪退过）：第 3 层只看新增节点，**不遍历全站、不量几何**，
+MutationObserver 不开 subtree，20 秒后自动断开；几何杀手 `launchJS` 仍保留但默认关闭
+（`AdBlock.splashKillerEnabled = false`），站点哪天真的加了全屏浮层再打开。
 
-调试：Safari 连上设备 → Web Inspector → 控制台执行 `__hj_scan()` 手动再扫一轮，
-`__hj_splash_kills` 是本次启动被拆掉的层（id/class 片段）。
+实测对比（390×844，iPhone UA）：
 
-改完 JS 别急着推，先在本机跑回归（不需要 Mac / 不需要浏览器）：
+| 组 | 8 秒时 DOM | 横幅 | 弹窗 | PWA 条 |
+|---|---|---|---|---|
+| A 原样 | 9.1 MB | 有 | 有 | 有 |
+| B 只拦接口 | 576 KB | 无 | 仍弹 | 无（被点掉） |
+| C 完整方案 | 571 KB | 无 | 无 | 无 |
+
+## 调试
+
+Safari 连设备 → 开发 → 该设备 → 页面 Web Inspector：
+
+```js
+__hj_strip_log     // 第 3 层摘掉了什么（box:/dialog:/overlay:）
+__hj_strip_now()   // 手动再扫一轮
+__hj_scan()        // 仅当 splashKillerEnabled = true 时存在
+```
+
+## 改完先跑回归（不需要 Mac / 不需要浏览器）
 
 ```bash
 node scripts/verify_adblock.js
 ```
 
-它会按 Swift 多行字符串语义把 `launchJS` / `js` 抽出来，检查「Swift 不认的反斜杠」
-（这类错误会让 Xcode 直接编译失败），再验 WKContentRuleList 的 JSON、造一个最小 DOM
-跑开屏杀手：杀开屏 / 不误伤登录框与协议页 / 用户触碰后停手 / 20 秒窗口 / 限次 12 层。
+它会按 Swift 多行字符串语义把 `launchJS` / `siteJS` / `js` 抽出来，检查「Swift 不认的反斜杠」
+（这类错误会让 Xcode 直接编译失败），重建 WKContentRuleList 的 JSON 验一遍，再造一个最小 DOM
+（带 MutationObserver / setInterval / 选择器匹配）跑真实脚本：
 
-> 1.0.3 又压了一轮开销：1.0.2 的杀手用 rAF 常驻循环 + subtree MutationObserver + 6 点采样，
-> 相当于每帧最多 6 次强制同步布局。这个项目历史上就因为「遍历元素 + getBoundingClientRect」
-> 把主线程卡死、App 被看门狗杀掉而闪退过，所以改成 setTimeout 驱动（前 2.5 秒 100ms、之后 350ms）、
-> 3 点采样、不观察 subtree、12 秒窗口、整段 try/catch 兜底。
-> 排查闪退时可把 `AdBlock.splashKillerEnabled` 改 false 重编，二分确认是不是这层 JS 的锅。
+- `.topbanmer` / `.addbox` 插入即被摘；`.van-dialog.luodi*` 点确认后移除
+- 站点**登录弹窗不许动**
+- `#app` 内部的横幅靠 400ms 兜底清掉
+- `window.open` 被封、广告 iframe 被清
+- 几何杀手：拆全屏浮层、放过长文协议页/播放器/登录框、触碰后停手、限次

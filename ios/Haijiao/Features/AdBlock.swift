@@ -2,14 +2,23 @@
 //  AdBlock.swift
 //  Haijiao
 //
-//  四层去广告（重点是开屏）：
-//    1. WKContentRuleList —— 网络层拦掉广告域名 + 广告路径 + css-display-none 直接不画开屏容器
-//    2. 注入 CSS —— 兜住同域下发、拦不住的开屏 / 广告位
-//    3. 启动期开屏杀手（documentStart）—— 不认 class 名，靠「谁盖在视口最上层」几何判定，
-//       在站点自己的 JS 把广告画出来之前就拆掉
-//    4. 常驻清理（documentEnd）—— 定时清理动态插入的弹窗 / 横幅 / iframe
+//  去广告 —— 规则全部来自对真实站点的实测（2026-10-30，CI 上 Playwright 渲染 + A/B/C 三组对比）：
 //
-//  站点是 Vue SPA，DOM 随时重建，所以清理必须定时跑，不能只在 load 时跑一次。
+//  站点实际有三个「挡屏物」，没有任何全屏开屏广告图：
+//    1. 顶部博彩横幅      .topbanmer   ← POST /api/banner/banner_list + hjstore/system/banner/*.gif.txt
+//    2. 底部 PWA 引导条   .addbox      ← “添加海角社区到主屏幕”
+//    3. 开屏三连弹窗      .van-dialog.luodiconfirm（重要提示/我知道了）
+//                          .van-dialog.luodisconfirm（域名保存/好）
+//
+//  四层：
+//    1. WKContentRuleList —— 拦 banner 数据源与图片、统计域，并用 css-display-none 首帧就不画
+//    2. 注入 CSS —— 同上的兜底（真 CSS 引擎，认大小写标志）
+//    3. siteJS（documentStart）—— MutationObserver 盯新增节点 + 400ms 兜底，
+//       只对上面几个精确选择器动手：不遍历全站、不做几何测量
+//    4. js（documentEnd）—— 封 window.open、过滤广告 alert、清广告 iframe，轻量收尾
+//
+//  几何杀手（launchJS）保留但默认关闭：实测站点没有铺满视口的浮层，
+//  而 elementsFromPoint 这类强制布局曾经把这个 App 拖死过。需要时把 splashKillerEnabled 改 true。
 //
 
 import Foundation
@@ -17,15 +26,14 @@ import WebKit
 
 enum AdBlock {
 
-    /// 排查闪退用的总开关：改成 false 重编 = 不注入启动期杀手，
-    /// 只保留「网络规则 + CSS + 常驻清理」三层（那三层都不会强制布局）。
-    static let splashKillerEnabled = true
+    /// 几何开屏杀手总开关。实测站点没有全屏浮层，默认关掉（它要强制布局，历史上崩过一次）。
+    static let splashKillerEnabled = false
 
     // MARK: - 第 1 层：网络层拦截
 
-    /// 常见广告 / 弹窗 / 统计域。命中即 block，连请求都不发。
+    /// 广告 / 统计域。命中即 block，连请求都不发。
     static let blockedHosts: [String] = [
-        // Google / 通用广告网络
+        // 通用广告网络
         "doubleclick.net", "googlesyndication.com", "googleadservices.com",
         "googletagservices.com", "adservice.google.com", "pagead2.googlesyndication.com",
         "adnxs.com", "adroll.com", "rubiconproject.com", "pubmatic.com",
@@ -45,48 +53,29 @@ enum AdBlock {
         "cnzz.com", "umeng.com", "cloudflareinsights.com",
     ]
 
-    /// 同域下发的广告资源路径特征（开屏图 / 广告 API 大多长这样）。命中即 block。
+    /// 站点自己的广告路径（实测：banner 数据接口 + banner 图片目录）。命中即 block。
     static let adPathRules: [String] = [
-        #"{"trigger":{"url-filter":"/ads?/","resource-type":["image","script","raw","popup"]},"action":{"type":"block"}}"#,
-        #"{"trigger":{"url-filter":"/advert","resource-type":["image","script","raw","popup"]},"action":{"type":"block"}}"#,
-        #"{"trigger":{"url-filter":"/upload/ad","resource-type":["image","script","raw"]},"action":{"type":"block"}}"#,
-        #"{"trigger":{"url-filter":"^https?://[^/]+/gg/","resource-type":["image","script","raw"]},"action":{"type":"block"}}"#,
-        #"{"trigger":{"url-filter":"/kaiping","resource-type":["image","script","raw"]},"action":{"type":"block"}}"#,
+        #"{"trigger":{"url-filter":"/api/banner/banner_list"},"action":{"type":"block"}}"#,
+        #"{"trigger":{"url-filter":"hjstore/system/banner/"},"action":{"type":"block"}}"#,
         #"{"trigger":{"url-filter":"/popunder"},"action":{"type":"block"}}"#,
-        #"{"trigger":{"url-filter":"/banner[0-9]*\\.(gif|png|jpe?g|webp)"},"action":{"type":"block"}}"#,
     ]
 
-    /// 开屏容器的 css-display-none 选择器：命中就压根不画，比任何 JS 都快。
-    /// 两个坑都踩过：
-    ///   · 要拼进 JSON，属性值一律用单引号（双引号会破坏 JSON）
-    ///   · WebKit 的 Content Blocker 选择器解析器只认 CSS 的一个子集，**不认 `i` 大小写标志**；
-    ///     带上 ` i` 会让整份规则编译失败 —— 那连广告域名拦截都会一起丢掉。
-    ///     所以这里只写小写形式；大写命名的开屏由注入的 CSS（真 CSS 引擎，认 `i`）兜住。
+    /// 实测到的三个挡屏物的容器。css-display-none = 首帧就不画，比任何 JS 都早。
+    /// 只用简单类选择器（WebKit 的 Content Blocker 选择器解析器只认 CSS 子集）。
     static let splashSelectors: String = [
-        "[class*='splash']", "[id*='splash']",
-        "[class*='kaiping']", "[id*='kaiping']",
-        "[class*='open-screen']", "[class*='openscreen']",
-        "[class*='launch-ad']", "[class*='launchad']",
-        "[class*='start-ad']", "[class*='boot-ad']",
-        "[class*='welcome-ad']", "[class*='welcomead']",
-        "[class*='startpage']", "[class*='interstitial']",
-        "[class*='openapp']", "[class*='open-app']",
-        "[class*='app-guide']", "[class*='download-bar']",
-        "[class*='ad-mask']", "[class*='admask']",
-        "[class*='gg-mask']", "[class*='ggmask']",
-        "[class*='fullscreen-ad']", "[class*='ad-fullscreen']",
-        "[class*='pop-ad']", "[class*='popad']",
-        "[class*='advert']", "[class*='guanggao']",
+        ".topbanmer",
+        ".addbox",
+        ".van-dialog.luodiconfirm",
+        ".van-dialog.luodisconfirm",
     ].joined(separator: ",")
 
     /// 编译成 WKContentRuleList（**拆成两份**）。
     ///
-    /// 为什么拆：规则列表里只要有一条解析不了，整份编译就失败、返回 nil。
-    /// 把「网络拦截」和「css-display-none」分开编译，CSS 选择器万一被 WebKit 挑刺，
-    /// 也丢不掉域名/路径拦截。编译失败的那份直接跳过，不影响主流程。
+    /// 规则列表里只要有一条解析不了，整份编译就失败、返回 nil。拆开以后，
+    /// CSS 选择器万一被 WebKit 挑刺，也丢不掉「banner 数据源 + 统计域」的拦截。
     static func makeRuleLists() async -> [WKContentRuleList] {
         var lists: [WKContentRuleList] = []
-        // WKContentRuleListStore.default() 返回的是 optional，先解开
+        // WKContentRuleListStore.default() 返回 optional，先解开
         guard let store = WKContentRuleListStore.default() else { return lists }
 
         let hostRules = blockedHosts.map { host in
@@ -108,43 +97,20 @@ enum AdBlock {
 
     // MARK: - 第 2 层：CSS
 
-    /// 常见的广告容器 class/id 命名。宁可多藏，也不误伤 —— 所以只匹配明确的广告词。
+    /// 与网络层 css-display-none 同一批选择器；这里带 ` i` 大小写标志，
+    /// 因为这是真 CSS 引擎（Content Blocker 那份不认）。
     static let css = """
-    /* 广告容器 */
+    /* 实测到的挡屏物 —— 首帧就藏 */
+    .topbanmer, .addbox,
+    .van-dialog.luodiconfirm, .van-dialog.luodisconfirm,
+    /* 同域下发的广告位（站点换名字时的兜底） */
     [class*="advert" i], [id*="advert" i],
     [class*="adsbygoogle" i], ins.adsbygoogle,
     [class*="ad-banner" i], [class*="adbanner" i],
-    [class*="ad-box" i], [id*="ad-box" i],
-    [class*="ad-wrap" i], [id*="ad-wrap" i],
-    [class*="ad-container" i], [id*="ad-container" i],
-    [class*="adsense" i], [id*="adsense" i],
-    [class*="gg-box" i], [class*="guanggao" i],
-    [class*="float-ad" i], [class*="floatad" i],
-    [class*="pop-ad" i], [class*="popad" i],
-    [class*="popup-ad" i], [class*="modal-ad" i],
-    [class*="interstitial" i],
-    /* 开屏广告 —— 首帧就藏起来，不依赖 JS */
-    [class*="splash" i], [id*="splash" i],
-    [class*="launch-ad" i], [class*="launchad" i],
-    [class*="open-screen" i], [class*="openscreen" i],
-    [class*="start-ad" i], [class*="boot-ad" i],
-    [class*="kaiping" i], [id*="kaiping" i],
-    [class*="startpage" i],
-    [class*="welcome-ad" i], [class*="welcomead" i],
-    [class*="guide-ad" i], [class*="guidead" i],
-    [class*="openapp" i], [class*="open-app" i],
-    [class*="app-guide" i], [class*="download-bar" i],
-    [class*="ad-mask" i], [class*="admask" i],
-    [class*="gg-mask" i], [class*="ggmask" i],
-    [class*="fullscreen-ad" i], [class*="ad-fullscreen" i],
-    /* 广告位 iframe */
-    iframe[src*="doubleclick" i],
-    iframe[src*="/ad" i][src*="?"],
-    iframe[id*="ad" i],
-    /* 推广条 / 引导下载 */
-    [class*="promo-bar" i], [class*="download-bar" i],
-    /* 遮罩类弹窗（只在明显是广告位时隐藏，避免误伤登录框） */
-    div[class*="mask" i][class*="ad" i] {
+    [class*="ad-box" i], [class*="ad-wrap" i], [class*="ad-container" i],
+    [class*="interstitial" i], [class*="guanggao" i],
+    /* 广告 iframe */
+    iframe[src*="doubleclick" i], iframe[src*="googlesyndication" i] {
         display: none !important;
         visibility: hidden !important;
         height: 0 !important;
@@ -152,19 +118,155 @@ enum AdBlock {
     }
     """
 
-    // MARK: - 第 3 层：启动期开屏杀手（documentStart）
+    // MARK: - 第 3 层：站点清理（documentStart）
 
-    /// 注入时机 .atDocumentStart —— 跑在站点脚本之前。
+    /// 注入时机 .atDocumentStart。
     ///
-    /// 判定不靠 class 名（站点改个名就废），靠几何：视口几个点取样，往上找那一层
-    /// 「铺满视口 + fixed/absolute/高 z-index」的容器，先点跳过再整层移除。
+    /// 只做实测有效的三件事，且**只对新增节点动手**（不遍历全站、不测量几何）：
+    ///   · .topbanmer / .addbox 出现即摘掉
+    ///   · .van-dialog.luodiconfirm / .luodisconfirm 出现即点确认再摘掉
+    ///   · 配套的 .van-overlay 一起摘
     ///
-    /// 性能红线（照历史事故定的，这一版的数字全是刻意压小的）：
-    ///   · **不用 requestAnimationFrame 常驻循环**，改 setTimeout：前 2.5 秒 100ms 一次，之后 350ms 一次
-    ///   · 采样点只 3 个、每点最多看 3 个元素、祖先链只走 6 层
-    ///   · 不用 subtree MutationObserver（Vue 首屏 DOM 变动会把回调打爆）
-    ///   · 12 秒窗口、最多拆 10 层、用户一碰屏幕立刻停手
-    ///   · 整体 try/catch，任何异常直接收摊 —— 宁可漏拆，也不能把主线程拖死
+    /// 开销护栏：MutationObserver 只看 body 的直接子节点（不开 subtree），
+    /// 20 秒后自动断开；另外前 16 秒每 400ms 用精确选择器兜底扫一次（40 次上限）。
+    static let siteJS = """
+    (function () {
+      if (window.__hj_strip) return;
+      window.__hj_strip = true;
+
+      var LOG = window.__hj_strip_log = [];
+      var PRECISE = '.topbanmer, .addbox';
+      var DIALOG = '.van-dialog.luodiconfirm, .van-dialog.luodisconfirm';
+
+      function clsOf(el) {
+        var c = el.className;
+        if (c && c.baseVal !== undefined) c = c.baseVal;
+        return String(c || '');
+      }
+
+      function rm(el, why) {
+        if (!el || !el.parentNode) return;
+        var label = why + ':' + clsOf(el).slice(0, 40);
+        try { el.remove(); } catch (e) {}
+        if (LOG.length < 30) LOG.push(label);
+      }
+
+      function clickConfirm(dlg) {
+        var btn = null;
+        try { btn = dlg.querySelector('.van-dialog__confirm, button'); } catch (e) {}
+        if (btn) { try { btn.click(); } catch (e) {} }
+        setTimeout(function () { rm(dlg, 'dialog'); }, 80);
+      }
+
+      // 只看「新增节点」，命中就处理
+      function onNode(n) {
+        try {
+          if (!n || n.nodeType !== 1) return;
+          var cls = clsOf(n);
+          if (/\\b(topbanmer|addbox)\\b/.test(cls)) { rm(n, 'box'); return; }
+          if (/luodiconfirm|luodisconfirm/.test(cls)) { clickConfirm(n); return; }
+          if (/^van-overlay/.test(cls)) {
+            var next = n.nextElementSibling;
+            if (next && /luodiconfirm|luodisconfirm/.test(clsOf(next))) rm(n, 'overlay');
+          }
+        } catch (e) {}
+      }
+
+      // 精确选择器兜底（只查 4 个选择器，不扫全站）
+      function sweepPrecise() {
+        try {
+          var boxes = document.querySelectorAll(PRECISE);
+          for (var i = 0; i < boxes.length; i++) rm(boxes[i], 'box');
+        } catch (e) {}
+        try {
+          var dlg = document.querySelectorAll(DIALOG);
+          for (var j = 0; j < dlg.length; j++) clickConfirm(dlg[j]);
+        } catch (e) {}
+      }
+
+      function start() {
+        try {
+          var mo = new MutationObserver(function (records) {
+            for (var i = 0; i < records.length; i++) {
+              var added = records[i].addedNodes;
+              for (var k = 0; k < added.length; k++) onNode(added[k]);
+            }
+          });
+          mo.observe(document.body || document.documentElement, { childList: true });
+          setTimeout(function () { try { mo.disconnect(); } catch (e) {} }, 20000);
+        } catch (e) {}
+
+        sweepPrecise();
+        var n = 0;
+        var t = setInterval(function () {
+          sweepPrecise();
+          if (++n >= 40) { try { clearInterval(t); } catch (e) {} }
+        }, 400);
+      }
+
+      window.__hj_strip_now = sweepPrecise;
+      if (document.body) start();
+      else document.addEventListener('DOMContentLoaded', start, { once: true });
+    })();
+    """
+
+    // MARK: - 第 4 层：收尾清理（documentEnd）
+
+    /// 轻量收尾：封 window.open（弹窗广告主要来源）、过滤广告 alert、
+    /// 清掉广告域的 iframe/script，并每 1.5 秒用精确选择器再扫一次（SPA 换页会重插节点）。
+    static let js = """
+    (function () {
+      if (window.__hj_adblock) return;
+      window.__hj_adblock = true;
+
+      var HOSTS = \(jsArray(blockedHosts));
+
+      // 1) 封 window.open
+      try { window.open = function () { return null; }; } catch (e) {}
+
+      // 2) 过滤广告文案 alert（站点偶尔用 alert 弹推广）
+      var _alert = window.alert;
+      window.alert = function (msg) {
+        var s = String(msg || '');
+        if (/广告|推广|下载|扫码|关注|加群|加微信|telegram|飞机/i.test(s)) return;
+        return _alert && _alert.call(window, msg);
+      };
+
+      // 3) 广告域 iframe / script
+      function dropAdNodes() {
+        try {
+          var sel = 'iframe[src*="doubleclick" i],iframe[src*="googlesyndication" i],' +
+                    'script[src*="popads" i],script[src*="propellerads" i],' +
+                    'img[src*="adsterra" i],img[src*="exoclick" i]';
+          var junk = document.querySelectorAll(sel);
+          for (var i = 0; i < junk.length; i++) { try { junk[i].remove(); } catch (e) {} }
+        } catch (e) {}
+      }
+
+      // 4) 每 1.5 秒兜底一次（精确选择器 + 广告节点），SPA 换页后也管用
+      function tick() {
+        dropAdNodes();
+        if (window.__hj_strip_now) { try { window.__hj_strip_now(); } catch (e) {} }
+      }
+      tick();
+      setInterval(tick, 1500);
+
+      // 5) DOM 变动就清一次（去抖 300ms，只看新增子树，不做几何）
+      try {
+        var pending = false;
+        new MutationObserver(function () {
+          if (pending) return;
+          pending = true;
+          setTimeout(function () { pending = false; tick(); }, 300);
+        }).observe(document.body || document.documentElement, { childList: true, subtree: true });
+      } catch (e) {}
+    })();
+    """
+
+    // MARK: - 可选：几何开屏杀手（默认不注入）
+
+    /// 只在站点以后真的加了「铺满视口的开屏浮层」时才需要。
+    /// 判定靠 document.elementsFromPoint + 覆盖面积，会触发强制布局 —— 谨慎开。
     static let launchJS = """
     (function () {
       if (window.__hj_splash) return;
@@ -267,41 +369,11 @@ enum AdBlock {
         return null;
       }
 
-      var SKIP_TEXT = /^(跳过|跳過|跳过广告|跳過廣告|关闭|關閉|关闭广告|×|✕|✖|x|X|skip|skip ?ad|close|\\d+\\s*s?|\\d+\\s*秒)$/;
-      var DISMISS_TEXT = /^(我知道了|知道了|好的|好|确定|确认|同意|继续|我知道|已阅读|同意并继续)$/;
-
-      function clickIn(root) {
-        var list = null;
-        try { list = root.querySelectorAll('div,span,a,button,i,em,p,label,img'); } catch (e) {}
-        if (!list || !list.length) return false;
-        var W = vw(), H = vh();
-        var N = Math.min(list.length, 60);
-        var best = null, bestScore = -1;
-        for (var i = 0; i < N; i++) {
-          var n = list[i];
-          var t = (n.textContent || '').trim();
-          var hit = t.length > 0 && t.length <= 8 && (SKIP_TEXT.test(t) || DISMISS_TEXT.test(t));
-          if (!hit && n.tagName === 'IMG') {
-            var src = n.getAttribute('src') || '';
-            if (/close|guanbi|skip|cross|cha-|xx/i.test(src)) hit = true;
-          }
-          if (!hit) continue;
-          var r = n.getBoundingClientRect();
-          if (r.width < 4 || r.height < 4) continue;
-          var score = (r.left / W) + (1 - r.top / H);
-          if (score > bestScore) { bestScore = score; best = n; }
-        }
-        if (!best) return false;
-        try { best.click(); } catch (e) {}
-        return true;
-      }
-
       function kill(layer) {
         var tag = null;
         try { tag = layer.getAttribute && layer.getAttribute('data-hj-killed'); } catch (e) {}
         if (tag === '1') return false;
         var label = nameOf(layer).slice(0, 60) || layer.tagName;
-        clickIn(layer);
         try { layer.remove(); } catch (e) {}
         if (layer.parentNode) { try { layer.style.display = 'none'; } catch (e2) {} }
         try { layer.setAttribute('data-hj-killed', '1'); } catch (e3) {}
@@ -342,7 +414,6 @@ enum AdBlock {
         }, gap);
       }
 
-      // 手动再扫一轮（调试用：控制台里执行 __hj_scan()）
       window.__hj_scan = function () {
         touched = false; done = false; T0 = Date.now();
         var layer = null;
@@ -352,270 +423,6 @@ enum AdBlock {
 
       scan();
       schedule();
-      try { window.addEventListener('load', scan, { once: true }); } catch (e) {}
-    })();
-    """
-    // MARK: - 第 4 层：常驻清理（documentEnd）
-
-    /// 注入用的 JS。
-    ///
-    /// 性能红线（上一版就是踩了这个才闪退）：
-    ///   · 只扫 `document.body.children`（第一层，通常 <20 个节点），**绝不** querySelectorAll 全站
-    ///   · 不做「遍历所有元素 + getBoundingClientRect」——那是强制同步布局，主线程直接卡死
-    ///   · 同一个节点只处理一次（打标记），避免反复计算
-    ///   · 前 8 秒 300ms 一次，之后 2 秒一次
-    static let js = """
-    (function () {
-      if (window.__hj_adblock) return;
-      window.__hj_adblock = true;
-
-      var HOSTS = \(jsArray(blockedHosts));
-      var START = Date.now();
-      // 已判定过的节点 → 判定时间戳。
-      // 注意不能永久标记：SPA 会复用同一个 DOM 节点，第一次扫时它还是普通容器，
-      // 打上永久标记之后就再也不会被检查 —— 广告换进来也认不出来了。
-      // 因此标记 4 秒后失效，允许重新判定。
-      var SEEN = (typeof WeakMap !== 'undefined') ? new WeakMap() : null;
-      var SEEN_LIFE = 4000;
-
-      function seen(el) {
-        if (!SEEN) return false;
-        var t = SEEN.get(el);
-        if (!t) return false;
-        if (Date.now() - t > SEEN_LIFE) { SEEN['delete'](el); return false; }
-        return true;
-      }
-      function markSeen(el) {
-        if (!SEEN) return;
-        SEEN.set(el, Date.now());
-      }
-
-      // 1) 封 window.open（弹窗广告主要来源）
-      try { window.open = function () { return null; }; } catch (e) {}
-
-      // 2) 封 alert 广告文案
-      var _alert = window.alert;
-      window.alert = function (msg) {
-        var s = String(msg || '');
-        if (/ad|广告|推广|下载|app|扫码|关注|加群|微信|qq|telegram|飞机/i.test(s)) return;
-        return _alert && _alert.call(window, msg);
-      };
-
-      function text(el) {
-        var t = el.textContent || '';
-        return t.length > 200 ? t.slice(0, 200) : t;
-      }
-
-      function idc(el) {
-        var c = el.className;
-        if (c && c.baseVal !== undefined) c = c.baseVal;
-        return ((el.id || '') + ' ' + (c || '')).toLowerCase();
-      }
-
-      // 3) 判定一个「body 直接子元素」是不是广告层
-      function isAdLayer(el) {
-        if (!el || el.nodeType !== 1) return false;
-        var tag = el.tagName;
-        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' ||
-            tag === 'META' || tag === 'NOSCRIPT') return false;
-        // #app 是根容器，绝不能删
-        if (el.id === 'app') return false;
-
-        var cs = getComputedStyle(el);
-        // 必须浮在上面
-        if (cs.position !== 'fixed' && cs.position !== 'absolute') return false;
-        if (cs.display === 'none' || cs.visibility === 'hidden') return false;
-        if (parseFloat(cs.opacity || '1') < 0.05) return false;
-
-        var z = parseInt(cs.zIndex || '0', 10);
-        if (isNaN(z) || z < 10) return false;
-
-        // 有输入框的放过（登录 / 评论 / 搜索）
-        if (el.querySelector('input,textarea,select')) return false;
-        // 有播放器的放过
-        if (el.querySelector('video')) return false;
-
-        var name = idc(el);
-        // 名字里明确是广告 / 开屏 / 遮罩
-        if (/(advert|adsense|adsbygoogle|adbanner|ad-banner|ad-box|ad-wrap|ad-container|guanggao|popunder|interstitial|splash|launch|openscreen|open-screen|start-?ad|boot-?ad|kaiping|startpage|welcome-?ad|guide-?ad|mask|overlay)/.test(name)) {
-          return true;
-        }
-
-        // 结构特征：几乎铺满 + 含图片或纯文字层 + 有跳过/倒计时/关闭字样
-        var r = el.getBoundingClientRect();
-        var w = window.innerWidth, h = window.innerHeight;
-        if (r.width < w * 0.8 || r.height < h * 0.8) return false;
-        var t = text(el);
-        var hasSkip = /(跳过|跳過|关闭|关闭广告|skip|close|\\d+\\s*s\\b)/i.test(t);
-        var hasMedia = !!el.querySelector('img,picture,canvas,iframe');
-        return hasSkip || hasMedia;
-      }
-
-      // 4) 在给定的广告层里找关闭按钮并点掉（只在这个子树里找，范围很小）
-      function clickSkipInside(el) {
-        var cand = el.querySelectorAll('div,span,a,button,i,em,p');
-        var LIMIT = Math.min(cand.length, 60);   // 硬上限，绝不无限扫
-        for (var i = 0; i < LIMIT; i++) {
-          var n = cand[i];
-          var t = (n.textContent || '').trim();
-          if (!t || t.length > 10) continue;
-          if (!/^(跳过|跳过广告|跳過|关闭|关闭广告|×|✕|x|X|skip|skip ad|close)$/.test(t)) continue;
-          try { n.click(); } catch (e) {}
-          return true;
-        }
-        return false;
-      }
-
-      // 5) 主清理
-      //
-      //    关键：Vue 的弹窗渲染在 #app 内部，不是 body 的直接子节点 ——
-      //    只扫 body.children 会完全扫不到。但也不能 querySelectorAll('*')。
-      //    折中：用 CSS 特征先筛出少量候选（只有浮层才带 position:fixed 的内联样式
-      //    或 popup/modal/mask 这类 class），再对这几个候选做几何判定。
-      var CAND_SEL = [
-        'div[style*="position: fixed"]',
-        'div[style*="position:fixed"]',
-        'div[class*="popup" i]', 'div[class*="modal" i]',
-        'div[class*="mask" i]', 'div[class*="overlay" i]',
-        'div[class*="dialog" i]', 'div[class*="layer" i]',
-        'div[class*="splash" i]', 'div[class*="launch" i]',
-        'div[class*="guide" i]', 'div[class*="advert" i]',
-        'div[class*="banner" i]', 'div[class*="notice" i]',
-        'div[id*="popup" i]', 'div[id*="modal" i]',
-        'div[id*="mask" i]', 'div[id*="ad" i]',
-        'div[id*="banner" i]',
-        'a[href*="javascript:void"]'
-      ].join(',');
-
-      // 5.0 关掉站点自己的提示弹窗（不删，只点掉按钮，免得破坏正常功能）
-      //     海角开屏会依次弹 3 个「warning 警告」，每个都有「我知道了」/「好」
-      var DISMISS_RE = /^(我知道了|知道了|好的|好|确定|确认|关闭|同意|继续|我知道了。)$/;
-
-      function autoDismiss() {
-        // 只在浮层候选里找按钮，范围很小
-        var zones = document.querySelectorAll(
-          'div[class*="popup" i],div[class*="modal" i],div[class*="mask" i],' +
-          'div[class*="dialog" i],div[class*="notice" i],div[class*="warn" i]'
-        );
-        var LIMIT = Math.min(zones.length, 20);
-        for (var i = 0; i < LIMIT; i++) {
-          var z = zones[i];
-          if (!z || !z.parentNode) continue;
-          var btns = z.querySelectorAll('button,a,div,span');
-          var N = Math.min(btns.length, 40);
-          for (var j = 0; j < N; j++) {
-            var b = btns[j];
-            var t = (b.textContent || '').trim();
-            if (!t || t.length > 8) continue;
-            if (!DISMISS_RE.test(t)) continue;
-            // 排除登录按钮
-            if (/登录|注册|登陆/.test(t)) continue;
-            try { b.click(); } catch (e) {}
-            return true;
-          }
-        }
-        return false;
-      }
-
-      function sweep() {
-        if (!document.body) return;
-
-        // 5.1 body 的直接子元素（原生浮层常挂这里）
-        var i, el;
-        var kids = document.body.children;
-        for (i = kids.length - 1; i >= 0; i--) {
-          el = kids[i];
-          if (!el || seen(el)) continue;
-          try {
-            if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
-            else { markSeen(el); }
-          } catch (e) {}
-        }
-
-        // 5.2 #app 的直接子元素（Vue 把弹窗挂在根组件里）
-        var app = document.getElementById('app');
-        if (app) {
-          var ak = app.children;
-          for (i = ak.length - 1; i >= 0; i--) {
-            el = ak[i];
-            if (!el || seen(el)) continue;
-            try {
-              if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
-              else { markSeen(el); }
-            } catch (e) {}
-          }
-        }
-
-        // 5.3 特征候选（数量很少，通常个位数）
-        try {
-          var cands = document.querySelectorAll(CAND_SEL);
-          var LIMIT = Math.min(cands.length, 40);   // 硬上限
-          for (i = 0; i < LIMIT; i++) {
-            el = cands[i];
-            if (!el || seen(el) || !el.parentNode) continue;
-            try {
-              if (isAdLayer(el)) { clickSkipInside(el); el.remove(); }
-            } catch (e) {}
-          }
-        } catch (e) {}
-
-        // 5.4 顶部横幅广告条
-        //     特征：贴着顶部、横向铺满、高度矮（<220px）、含图片或指向外部 / 无文字
-        try {
-          var tops = document.querySelectorAll('a,div');
-          var TN = Math.min(tops.length, 800);
-          for (i = 0; i < TN; i++) {
-            el = tops[i];
-            if (!el || seen(el) || !el.parentNode) continue;
-            var r = el.getBoundingClientRect();
-            if (r.top > 240 || r.height > 220 || r.height < 40) continue;
-            if (r.width < window.innerWidth * 0.85) continue;
-            // 里面有 img 且整块是链接（点一下跳外站）—— 基本就是横幅广告
-            var href = el.getAttribute && (el.getAttribute('href') || '');
-            var hasImg = !!el.querySelector('img');
-            var txtLen = (el.textContent || '').trim().length;
-            var looksBanner = hasImg && (href.indexOf('javascript') === 0 || href === '' || href === '#');
-            if (looksBanner && txtLen < 30) {
-              try { el.remove(); } catch (e) {}
-            } else {
-              markSeen(el);
-            }
-          }
-        } catch (e) {}
-
-        // 5.5 广告域资源
-        try {
-          var junk = document.querySelectorAll(
-            'iframe[src*="doubleclick" i],iframe[src*="googlesyndication" i],' +
-            'script[src*="popads" i],script[src*="propellerads" i],' +
-            'img[src*="adsterra" i],img[src*="exoclick" i]'
-          );
-          for (var k = 0; k < junk.length; k++) { junk[k].remove(); }
-        } catch (e) {}
-
-        // 5.6 最后：把站点的 warning 提示点掉
-        autoDismiss();
-      }
-
-      // 6) 前 8 秒 300ms 一次（开屏弹窗都在这个窗口），之后降到 2 秒
-      sweep();
-      var fast = setInterval(function () {
-        sweep();
-        if (Date.now() - START > 20000) {
-          clearInterval(fast);
-          setInterval(sweep, 1500);
-        }
-      }, 300);
-
-      // 7) DOM 变动触发（去抖 200ms，避免频繁回调）
-      try {
-        var pending = false;
-        new MutationObserver(function () {
-          if (pending) return;
-          pending = true;
-          setTimeout(function () { pending = false; sweep(); }, 200);
-        }).observe(document.body || document.documentElement, { childList: true });
-      } catch (e) {}
     })();
     """
 
