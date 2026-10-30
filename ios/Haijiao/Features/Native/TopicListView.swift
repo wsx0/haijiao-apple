@@ -11,7 +11,6 @@ import UIKit
 
 // MARK: - 图片（站点图片是 .txt 后缀，自带 content-type 不一定可信，所以按字节解码）
 
-@MainActor
 final class NativeImageCache {
     static let shared = NativeImageCache()
     private let cache = NSCache<NSString, UIImage>()
@@ -38,6 +37,7 @@ struct RemoteImage: View {
         .task(id: url?.absoluteString) { await load() }
     }
 
+    @MainActor
     private func load() async {
         guard let url else { return }
         let key = url.absoluteString
