@@ -191,6 +191,7 @@ function makeWorld() {
   const document = {
     nodeType: 9, documentElement: html, body, head,
     readyState: 'loading',
+    visibilityState: 'visible',
     createElement: t => new El(t),
     getElementById: id => (function find(n) {
       for (const c of n._children) { if (c.id === id) return c; const r = find(c); if (r) return r; }
@@ -229,7 +230,7 @@ function makeWorld() {
     window: win, document, MutationObserver,
     getComputedStyle: el => el.style,
     Date: { now: () => clock.t },
-    setTimeout: (fn) => { timers.push(fn); return timers.length; },
+    setTimeout: (fn, delay) => { timers.push({ fn, at: clock.t + (delay || 0) }); return timers.length; },
     setInterval: () => 0, clearInterval: () => {}, clearTimeout: () => {},
     console,
   };
@@ -242,13 +243,21 @@ function makeWorld() {
   function frame(n) {
     for (let i = 0; i < n; i++) {
       clock.t += 30;
+      // 先跑到期的 setTimeout（launchJS 用定时器驱动，不是 rAF）
+      let guard = 0;
+      while (guard++ < 400) {
+        const idx = timers.findIndex(t => t.at <= clock.t);
+        if (idx < 0) break;
+        const t = timers.splice(idx, 1)[0];
+        try { t.fn(); } catch (e) { console.error('timer error:', e.message); }
+      }
       const q = rafQ.splice(0, rafQ.length);
       for (const cb of q) { try { cb(); } catch (e) { console.error('frame error:', e.message); } }
     }
   }
   function touch() { for (const l of listeners) if (/touchstart|pointerdown/.test(l.evt)) l.fn({ type: l.evt }); }
 
-  return { sandbox, document, body, head, html, addHit, frame, touch, clock, hits, win };
+  return { sandbox, document, body, head, html, addHit, frame, touch, clock, hits, win, timers };
 }
 
 function runLaunch() {
@@ -284,7 +293,7 @@ function splash(world, opts) {
 (function T1() {
   const w = runLaunch();
   const ad = splash(w, { id: 'app-splash', cls: 'splash-wrap' });
-  w.frame(3);
+  w.frame(10);
   ok('T1 开屏层被移除', ad.parentNode === null, 'hits=' + JSON.stringify(w.sandbox.window.__hj_splash_kills));
   ok('T1 记录到 1 次拆除', w.sandbox.window.__hj_splash_kills.length === 1);
   ok('T1 跳过按钮被点过', ad._skip.clicks >= 1, 'clicks=' + ad._skip.clicks);
@@ -294,7 +303,7 @@ function splash(world, opts) {
 (function T2() {
   const w = runLaunch();
   const ad = splash(w, { id: '', cls: 'gg-2', text: true });
-  w.frame(3);
+  w.frame(10);
   ok('T2 匿名 class 的开屏被移除', ad.parentNode === null, JSON.stringify(w.sandbox.window.__hj_splash_kills));
 })();
 
@@ -304,7 +313,7 @@ function splash(world, opts) {
   const modal = splash(w, { id: 'login-modal', cls: 'login-box', text: true });
   const input = new El('input', { rect: { left: 40, top: 400, width: 300, height: 40 } });
   modal.appendChild(input);
-  w.frame(3);
+  w.frame(12);
   ok('T3 登录弹窗保留', modal.parentNode === w.body, 'hits=' + JSON.stringify(w.sandbox.window.__hj_splash_kills));
 })();
 
@@ -318,7 +327,7 @@ function splash(world, opts) {
     text: '用'.repeat(600),
   });
   w.body.appendChild(page); w.addHit(page, 999);
-  w.frame(3);
+  w.frame(12);
   ok('T4 长文协议页保留', page.parentNode === w.body);
 })();
 
@@ -327,7 +336,7 @@ function splash(world, opts) {
   const w = runLaunch();
   const player = splash(w, { id: 'player', cls: 'dplayer-full', text: false });
   player.appendChild(new El('video', { rect: { left: 0, top: 100, width: W, height: 220 } }));
-  w.frame(3);
+  w.frame(12);
   ok('T5 播放器层保留', player.parentNode === w.body);
 })();
 
@@ -356,12 +365,12 @@ function splash(world, opts) {
   const layers = [];
   for (let i = 0; i < 15; i++) {
     layers.push(splash(w, { id: 'ad-' + i, cls: 'splash-' + i }));
-    w.frame(6);
+    w.frame(12);
   }
   const killed = w.sandbox.window.__hj_splash_kills.length;
   const left = layers.filter(l => l.parentNode !== null).length;
-  ok('T8 最多拆 12 层', killed === 12, 'killed=' + killed + ' left=' + left + ' ' + JSON.stringify(w.sandbox.window.__hj_splash_kills.slice(0, 4)));
-  ok('T8 第 13 层起保留', left === 3, 'left=' + left);
+  ok('T8 最多拆 10 层', killed === 10, 'killed=' + killed + ' left=' + left + ' ' + JSON.stringify(w.sandbox.window.__hj_splash_kills.slice(0, 4)));
+  ok('T8 第 11 层起保留', left === 5, 'left=' + left);
 })();
 
 // ── T9 __hj_scan 手动重扫 ──

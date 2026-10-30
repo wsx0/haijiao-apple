@@ -76,7 +76,9 @@ struct LegacyWebView: UIViewControllerRepresentable {
                 source: AdBlock.launchJS,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true)
-            cfg.userContentController.addUserScript(splashScript)
+            if AdBlock.splashKillerEnabled {
+                cfg.userContentController.addUserScript(splashScript)
+            }
             // 第 3 层：CSS 立刻隐藏（纯样式，零 CPU 成本）
             let cssScript = WKUserScript(
                 source: """

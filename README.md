@@ -31,7 +31,7 @@ python3 tools/gen_ios_xcodeproj.py --verify
 | 手势 | `allowsBackForwardNavigationGestures = true`，右滑返回 |
 | 错误页 | 加载失败给可点重试的 HTML |
 
-## 去开屏广告（1.0.2）
+## 去开屏广告（1.0.3）
 
 四层，全部在 `ios/Haijiao/Features/AdBlock.swift`：
 
@@ -65,4 +65,8 @@ node scripts/verify_adblock.js
 （这类错误会让 Xcode 直接编译失败），再验 WKContentRuleList 的 JSON、造一个最小 DOM
 跑开屏杀手：杀开屏 / 不误伤登录框与协议页 / 用户触碰后停手 / 20 秒窗口 / 限次 12 层。
 
-
+> 1.0.3 又压了一轮开销：1.0.2 的杀手用 rAF 常驻循环 + subtree MutationObserver + 6 点采样，
+> 相当于每帧最多 6 次强制同步布局。这个项目历史上就因为「遍历元素 + getBoundingClientRect」
+> 把主线程卡死、App 被看门狗杀掉而闪退过，所以改成 setTimeout 驱动（前 2.5 秒 100ms、之后 350ms）、
+> 3 点采样、不观察 subtree、12 秒窗口、整段 try/catch 兜底。
+> 排查闪退时可把 `AdBlock.splashKillerEnabled` 改 false 重编，二分确认是不是这层 JS 的锅。

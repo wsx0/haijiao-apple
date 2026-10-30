@@ -20,28 +20,22 @@ struct RootView: View {
     @State private var showBar = true
     @State private var lastTap: Date = .distantPast
     /// 广告拦截规则（网络层 + 开屏 css-display-none）。
-    /// nil = 还没编译完 —— 这时候**不建 WebView**。
-    ///
-    /// 为什么非这样不可：`UIViewControllerRepresentable.makeUIViewController` 只在视图首次出现时调一次，
-    /// 之后 ruleLists 变化只会走 `updateUIViewController`。旧版在 `.task` 里异步赋值，
-    /// 结果 WebView 早就建好了，规则一条也没挂上去 —— 网络拦截和 css-display-none 全程空转。
-    /// 现在等规则就绪再建 WebView（编译通常几十到几百毫秒，期间只是黑屏）。
-    @State private var ruleLists: [WKContentRuleList]?
+    /// 编译是异步的，所以这里先给空数组、照常建 WebView；
+    /// 规则编译完后由 `LegacyWebView.updateUIViewController` 补挂进 userContentController 并 reload 一次。
+    @State private var ruleLists: [WKContentRuleList] = []
 
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
 
-            if let lists = ruleLists {
-                LegacyWebView(url: Self.homeURL,
-                              progress: $progress,
-                              canGoBack: $canGoBack,
-                              canGoForward: $canGoForward,
-                              title: $title,
-                              reloadToken: reloadToken,
-                              ruleLists: lists)
-                    .ignoresSafeArea(edges: .bottom)
-            }
+            LegacyWebView(url: Self.homeURL,
+                          progress: $progress,
+                          canGoBack: $canGoBack,
+                          canGoForward: $canGoForward,
+                          title: $title,
+                          reloadToken: reloadToken,
+                          ruleLists: ruleLists)
+                .ignoresSafeArea(edges: .bottom)
 
             // 顶部进度条
             if progress > 0, progress < 1 {
@@ -86,7 +80,7 @@ struct RootView: View {
         }
         .statusBarHidden(false)
         .task {
-            // 先编译规则，编译完才出现 WebView。失败（空数组）也照样放行，靠注入的 CSS/JS 兜。
+            // 编译规则（异步）。失败就返回空数组，退回纯 CSS/JS 两层，不影响启动。
             ruleLists = await AdBlock.makeRuleLists()
         }
         .onTapGesture {

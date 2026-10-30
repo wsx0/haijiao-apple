@@ -17,6 +17,10 @@ import WebKit
 
 enum AdBlock {
 
+    /// 排查闪退用的总开关：改成 false 重编 = 不注入启动期杀手，
+    /// 只保留「网络规则 + CSS + 常驻清理」三层（那三层都不会强制布局）。
+    static let splashKillerEnabled = true
+
     // MARK: - 第 1 层：网络层拦截
 
     /// 常见广告 / 弹窗 / 统计域。命中即 block，连请求都不发。
@@ -152,32 +156,36 @@ enum AdBlock {
 
     /// 注入时机 .atDocumentStart —— 跑在站点脚本之前。
     ///
-    /// 不靠 class 名（站点改个名就失效），改用「几何 + 层级」判定：
-    ///   用 document.elementsFromPoint 在视口几个点取样，拿到盖在最上层的元素，
-    ///   再往上找那一层「铺满视口并且是 fixed/absolute/高 z-index」的容器。
-    ///   命中且不属于登录/表单/播放器 → 先点跳过按钮，再整层移除。
+    /// 判定不靠 class 名（站点改个名就废），靠几何：视口几个点取样，往上找那一层
+    /// 「铺满视口 + fixed/absolute/高 z-index」的容器，先点跳过再整层移除。
     ///
-    /// 只在启动窗口（20 秒）内、用户还没操作过的时候动手，
-    /// 并且限次（12 层），避免误伤正常的全屏浮层或和站点互相拉锯。
+    /// 性能红线（照历史事故定的，这一版的数字全是刻意压小的）：
+    ///   · **不用 requestAnimationFrame 常驻循环**，改 setTimeout：前 2.5 秒 100ms 一次，之后 350ms 一次
+    ///   · 采样点只 3 个、每点最多看 3 个元素、祖先链只走 6 层
+    ///   · 不用 subtree MutationObserver（Vue 首屏 DOM 变动会把回调打爆）
+    ///   · 12 秒窗口、最多拆 10 层、用户一碰屏幕立刻停手
+    ///   · 整体 try/catch，任何异常直接收摊 —— 宁可漏拆，也不能把主线程拖死
     static let launchJS = """
     (function () {
       if (window.__hj_splash) return;
       window.__hj_splash = true;
 
       var T0 = Date.now();
-      var WINDOW_MS = 20000;     // 启动期强杀窗口
-      var MAX_HITS = 12;         // 单次启动最多拆 12 层
-      var MIN_GAP = 80;          // 两次扫描最小间隔（ms），防止打爆主线程
+      var WINDOW_MS = 12000;
+      var MAX_HITS = 10;
+      var MIN_GAP = 90;
       var hits = window.__hj_splash_kills = [];
       var touched = false;
-      var lastRun = 0;
       var done = false;
+      var lastRun = 0;
+      var timer = null;
 
-      // 用户一动，就说明开屏已经过去 / 他正在操作，立刻停手
-      ['touchstart', 'pointerdown', 'mousedown', 'keydown', 'wheel', 'scroll'].forEach(function (n) {
-        try { window.addEventListener(n, function () { touched = true; },
-              { capture: true, passive: true }); } catch (e) {}
-      });
+      try {
+        ['touchstart', 'pointerdown', 'mousedown', 'keydown', 'wheel'].forEach(function (n) {
+          window.addEventListener(n, function () { touched = true; },
+            { capture: true, passive: true });
+        });
+      } catch (e) {}
 
       function vw() {
         return window.innerWidth ||
@@ -193,7 +201,6 @@ enum AdBlock {
         return String((el.id || '') + ' ' + (c || '')).toLowerCase();
       }
 
-      // 明显不是广告的层：登录 / 支付 / 播放器 / 编辑器 / 上传
       var PROTECT = /(login|sign-?in|regist|passwd|password|captcha|verify|pay|order|cashier|player|video|upload|editor|search|comment)/;
 
       function protectedLayer(el) {
@@ -206,7 +213,6 @@ enum AdBlock {
         var media = null;
         try { media = el.querySelector('img,picture,canvas,iframe'); } catch (e) {}
         var txt = (el.textContent || '').length;
-        // 没图没播放器、又是长篇文字：那是内容页 / 协议页，不是开屏
         if (!media && txt > 400) return true;
         return false;
       }
@@ -219,10 +225,9 @@ enum AdBlock {
         return r.width >= W * 0.95 && r.height >= H * 0.45;
       }
 
-      // 从一个被点中的元素往上找「铺满视口的那一层」
       function layerOf(el) {
         var n = el, depth = 0;
-        while (n && n.nodeType === 1 && depth < 9) {
+        while (n && n.nodeType === 1 && depth < 6) {
           if (n === document.body || n === document.documentElement) break;
           if (covers(n)) {
             var cs = null;
@@ -240,10 +245,7 @@ enum AdBlock {
         return null;
       }
 
-      var PTS = [
-        [0.5, 0.5], [0.5, 0.12], [0.88, 0.06],
-        [0.5, 0.88], [0.12, 0.5], [0.5, 0.03]
-      ];
+      var PTS = [[0.5, 0.5], [0.86, 0.08], [0.5, 0.06]];
 
       function findOverlay() {
         if (!document.elementsFromPoint) return null;
@@ -254,7 +256,7 @@ enum AdBlock {
           var stack = null;
           try { stack = document.elementsFromPoint(x, y); } catch (e) {}
           if (!stack || !stack.length) continue;
-          for (var j = 0; j < stack.length && j < 5; j++) {
+          for (var j = 0; j < stack.length && j < 3; j++) {
             var el = stack[j];
             if (!el || el.nodeType !== 1) continue;
             if (el.tagName === 'HTML' || el.tagName === 'BODY') continue;
@@ -268,13 +270,12 @@ enum AdBlock {
       var SKIP_TEXT = /^(跳过|跳過|跳过广告|跳過廣告|关闭|關閉|关闭广告|×|✕|✖|x|X|skip|skip ?ad|close|\\d+\\s*s?|\\d+\\s*秒)$/;
       var DISMISS_TEXT = /^(我知道了|知道了|好的|好|确定|确认|同意|继续|我知道|已阅读|同意并继续)$/;
 
-      // 在广告层里点掉「跳过 / 关闭 / 我知道了」，右上角优先
       function clickIn(root) {
         var list = null;
         try { list = root.querySelectorAll('div,span,a,button,i,em,p,label,img'); } catch (e) {}
         if (!list || !list.length) return false;
         var W = vw(), H = vh();
-        var N = Math.min(list.length, 100);
+        var N = Math.min(list.length, 60);
         var best = null, bestScore = -1;
         for (var i = 0; i < N; i++) {
           var n = list[i];
@@ -296,68 +297,64 @@ enum AdBlock {
       }
 
       function kill(layer) {
-        // 幂等：同一个层只拆一次，别把 12 次配额浪费在同一个节点上
         var tag = null;
         try { tag = layer.getAttribute && layer.getAttribute('data-hj-killed'); } catch (e) {}
         if (tag === '1') return false;
         var label = nameOf(layer).slice(0, 60) || layer.tagName;
         clickIn(layer);
-        var gone = false;
         try { layer.remove(); } catch (e) {}
-        gone = !layer.parentNode;
-        if (!gone) { try { layer.style.display = 'none'; } catch (e2) {} }
+        if (layer.parentNode) { try { layer.style.display = 'none'; } catch (e2) {} }
         try { layer.setAttribute('data-hj-killed', '1'); } catch (e3) {}
         if (hits.length < 40) hits.push(label);
         return true;
       }
 
+      function stop() {
+        done = true;
+        if (timer) { try { clearTimeout(timer); } catch (e) {} timer = null; }
+      }
+
       function scan() {
-        if (done) return true;
-        if (touched) { done = true; return true; }
-        if (hits.length >= MAX_HITS) { done = true; return true; }
-        if (Date.now() - T0 > WINDOW_MS) { done = true; return true; }
-        var now = Date.now();
-        if (now - lastRun < MIN_GAP) return false;
-        lastRun = now;
-        var layer = null;
-        try { layer = findOverlay(); } catch (e) {}
-        if (layer) {
-          // 已经脱离文档的节点还能被取样命中（旧子树），跳过，别占配额
-          if (layer.isConnected === false) return false;
+        try {
+          if (done) return;
+          if (touched) { stop(); return; }
+          if (hits.length >= MAX_HITS) { stop(); return; }
+          if (Date.now() - T0 > WINDOW_MS) { stop(); return; }
+          var now = Date.now();
+          if (now - lastRun < MIN_GAP) return;
+          lastRun = now;
+          var vs = document.visibilityState;
+          if (vs && vs !== 'visible') return;
+          var layer = findOverlay();
+          if (!layer) return;
+          if (layer.isConnected === false) return;
           kill(layer);
-        }
-        return false;
+        } catch (e) { stop(); }
       }
 
-      function step() {
+      function schedule() {
         if (done) return;
-        if (window.requestAnimationFrame) window.requestAnimationFrame(loop);
-        else setTimeout(loop, 60);
+        var gap = (Date.now() - T0) < 2500 ? 100 : 350;
+        timer = setTimeout(function () {
+          timer = null;
+          scan();
+          schedule();
+        }, gap);
       }
-      function loop() {
-        if (scan()) return;
-        step();
-      }
-
-      // DOM 一出现就抓：MutationObserver 只是「叫醒」，真正的判定在 scan 里限频
-      try {
-        var mo = new MutationObserver(function () { scan(); });
-        mo.observe(document, { childList: true, subtree: true });
-        setTimeout(function () { try { mo.disconnect(); } catch (e) {} }, WINDOW_MS + 2000);
-      } catch (e) {}
 
       // 手动再扫一轮（调试用：控制台里执行 __hj_scan()）
       window.__hj_scan = function () {
         touched = false; done = false; T0 = Date.now();
-        var layer = findOverlay();
+        var layer = null;
+        try { layer = findOverlay(); } catch (e) {}
         return layer ? kill(layer) : false;
       };
 
-      if (document.body) scan();
-      step();
+      scan();
+      schedule();
+      try { window.addEventListener('load', scan, { once: true }); } catch (e) {}
     })();
     """
-
     // MARK: - 第 4 层：常驻清理（documentEnd）
 
     /// 注入用的 JS。
