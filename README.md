@@ -33,7 +33,7 @@ python3 tools/gen_ios_xcodeproj.py --verify
 | 手势 | `allowsBackForwardNavigationGestures = true`，右滑返回 |
 | 错误页 | 加载失败给可点重试的 HTML |
 
-## 去广告（1.0.8 —— 规则全部来自实测）
+## 去广告（1.0.9 —— 规则全部来自实测）
 
 **先说结论**：站点没有「全屏开屏广告图」。真正挡屏的是三个东西，2026-10-30 在 CI 上用
 Playwright 渲染 + A/B/C 三组对比实拍确认：
@@ -140,3 +140,16 @@ node scripts/verify_adblock.js
 
 量化脚本 `scripts/perf-probe.mjs`：同一台 CI 机器上跑 A（原样）/ B（去广告），
 输出 FCP、DCL、load、请求数、传输字节、longtask 次数与总时长、DOM 节点数。
+
+### 1.0.9：修「往下划不动」
+
+1.0.7 加了「弹窗清掉后解除 vant 滚动锁」，但判据写的是 `querySelector('.van-dialog, .van-popup')` ——
+**只看存在性**。站点常在 DOM 里留一个 `display:none` 的 `.van-popup`（抽屉 / 筛选面板），
+于是永远判定「有弹窗」，`body` 的 `van-overflow-hidden` 永远解不开 → 整页划不动。
+
+1.0.9 改成看**可见性**：只有存在**有尺寸且可见**的 `.van-dialog` / `.van-popup` 时才保留锁；
+否则清掉 `body` / `html` 上的 `van-overflow-hidden` 与内联 `overflow`。
+平时零开销（没锁就直接返回）。回归 S11/S12 分别盯「隐藏 popup 要解锁」「可见弹窗保留锁」。
+
+诊断脚本 `scripts/scroll-probe.mjs`：注入 App 同源的 `siteJS` 后，实测
+`body/html` 的锁、真实滚动容器、`scrollTo` 是否生效、手动解锁后是否能滚。

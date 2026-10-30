@@ -213,22 +213,51 @@ enum AdBlock {
         } catch (e) {}
       }
 
-      // 站点用 vant 的滚动锁：弹窗一开就给 body 加 van-overflow-hidden。
-      // 我们把弹窗节点删了，vant 自己的清理就被「外力移除」打断 —— 这个 class 会留在 body 上，
-      // 结果整页滚不动、看着像「点不动屏幕」。没有弹窗时就强制解锁。
+      // 站点用 vant 的滚动锁：弹窗一开就给 body（有时连 html）加 van-overflow-hidden。
+      // 我们把弹窗节点删了，vant 自己的清理就被「外力移除」打断 —— 这个 class 会留下，
+      // 整页就滚不动（用户看到的是「往下划不动」）。
+      //
+      // 判据必须看「有没有**可见**的弹窗」：站点常驻一个 display:none 的 .van-popup（抽屉/筛选面板），
+      // 只用 querySelector 判断存在性的话，永远都会以为「有弹窗」，锁就永远解不开 —— 1.0.7/1.0.8 就是栽在这。
+      function hasVisibleModal() {
+        try {
+          var mods = document.querySelectorAll('.van-dialog, .van-popup');
+          for (var i = 0; i < mods.length; i++) {
+            var el = mods[i], cs = null;
+            try { cs = getComputedStyle(el); } catch (e) {}
+            if (!cs) continue;
+            if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+            if (parseFloat(cs.opacity || '1') < 0.05) continue;
+            var r = el.getBoundingClientRect();
+            if (r.width > 8 && r.height > 8) return true;
+          }
+        } catch (e) {}
+        return false;
+      }
+
+      function stripLock(el, tag) {
+        if (!el) return false;
+        var cls = String(el.className || '');
+        if (cls.indexOf('van-overflow-hidden') < 0) return false;
+        el.className = cls.split(/\\s+/).filter(function (x) {
+          return x && x !== 'van-overflow-hidden';
+        }).join(' ');
+        if (LOG.length < 30) LOG.push('unlock:' + tag);
+        return true;
+      }
+
       function unlockBody() {
         try {
-          var b = document.body;
-          if (!b) return;
-          if (document.querySelector('.van-dialog, .van-popup')) return;   // 真有弹窗就不动
-          var cls = String(b.className || '');
-          if (cls.indexOf('van-overflow-hidden') >= 0) {
-            b.className = cls.split(/\\s+/).filter(function (x) {
-              return x && x !== 'van-overflow-hidden';
-            }).join(' ');
-            if (LOG.length < 30) LOG.push('unlock:body');
-          }
-          if (b.style) {
+          var b = document.body, h = document.documentElement;
+          // 平时零开销：只有真的被锁才往下走
+          var locked = String((b && b.className) || '').indexOf('van-overflow-hidden') >= 0 ||
+                       String((h && h.className) || '').indexOf('van-overflow-hidden') >= 0 ||
+                       !!(b && b.style && (b.style.overflow === 'hidden' || b.style.overflowY === 'hidden'));
+          if (!locked) return;
+          if (hasVisibleModal()) return;        // 真弹窗在，锁是合理的
+          stripLock(b, 'body');
+          stripLock(h, 'html');
+          if (b && b.style) {
             if (b.style.overflow) b.style.overflow = '';
             if (b.style.overflowY) b.style.overflowY = '';
           }

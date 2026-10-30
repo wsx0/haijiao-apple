@@ -475,6 +475,27 @@ function splash(world, opts) {
      w.body.className.indexOf('van-overflow-hidden') >= 0 && ov.parentNode === w.body,
      'class="' + w.body.className + '"');
 })();
+(function S11() {
+  const w = runSite();
+  // 站点常驻一个 display:none 的 .van-popup（抽屉类），body 被锁 —— 必须仍能解锁
+  const popup = new El('div', { cls: 'van-popup', style: { display: 'none' } });
+  w.body.appendChild(popup);
+  w.body.className = 'van-overflow-hidden';
+  w.frame(25);
+  ok('S11 隐藏的 .van-popup 不该阻止解锁', w.body.className.indexOf('van-overflow-hidden') < 0,
+     'class="' + w.body.className + '" log=' + JSON.stringify(w.sandbox.window.__hj_strip_log));
+})();
+
+(function S12() {
+  const w = runSite();
+  // 真·可见弹窗（有尺寸）：锁必须保留，否则背景滚起来会跟模态打架
+  const popup = new El('div', { cls: 'van-popup', rect: { left: 0, top: 600, width: 390, height: 244 } });
+  w.body.appendChild(popup);
+  w.body.className = 'van-overflow-hidden';
+  w.frame(25);
+  ok('S12 可见弹窗时保留滚动锁', w.body.className.indexOf('van-overflow-hidden') >= 0,
+     'class="' + w.body.className + '"');
+})();
 // ───────────────────────── 5. documentEnd：收尾清理 ─────────────────────────
 (function E1() {
   const w = runEnd();
