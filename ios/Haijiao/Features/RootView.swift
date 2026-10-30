@@ -19,8 +19,8 @@ struct RootView: View {
     @State private var reloadToken = 0
     @State private var showBar = true
     @State private var lastTap: Date = .distantPast
-    /// 广告拦截规则。先渲染再用，编译失败也不影响启动。
-    @State private var ruleList: WKContentRuleList?
+    /// 广告拦截规则（网络层 + 开屏 css-display-none）。先渲染再用，编译失败也不影响启动。
+    @State private var ruleLists: [WKContentRuleList] = []
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -32,7 +32,7 @@ struct RootView: View {
                           canGoForward: $canGoForward,
                           title: $title,
                           reloadToken: reloadToken,
-                          ruleList: ruleList)
+                          ruleLists: ruleLists)
                 .ignoresSafeArea(edges: .bottom)
 
             // 顶部进度条
@@ -79,7 +79,7 @@ struct RootView: View {
         .statusBarHidden(false)
         .task {
             // 规则在后台编译，不阻塞首帧渲染；失败就只靠 CSS/JS 两层
-            ruleList = await AdBlock.makeRuleList()
+            ruleLists = await AdBlock.makeRuleLists()
         }
         .onTapGesture {
             // 双击（间隔内连点两次）切换导航栏
