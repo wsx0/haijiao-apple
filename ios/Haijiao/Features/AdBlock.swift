@@ -83,6 +83,20 @@ enum AdBlock {
         return String(hash, radix: 16)
     }
 
+    /// `lookUpContentRuleList` / `removeContentRuleList` 在 Xcode 15.4 的 SDK 里只有 completion 版，
+    /// 这里包成 async，避免用不存在的重载（1.0.8 第一次构建就栽在这）。
+    private static func cachedList(_ store: WKContentRuleListStore, _ id: String) async -> WKContentRuleList? {
+        await withCheckedContinuation { (cont: CheckedContinuation<WKContentRuleList?, Never>) in
+            store.lookUpContentRuleList(forIdentifier: id) { list, _ in
+                cont.resume(returning: list)
+            }
+        }
+    }
+
+    private static func dropList(_ store: WKContentRuleListStore, _ id: String) {
+        store.removeContentRuleList(forIdentifier: id) { _ in }
+    }
+
     static func makeRuleLists() async -> [WKContentRuleList] {
         var lists: [WKContentRuleList] = []
         // WKContentRuleListStore.default() 返回 optional，先解开
@@ -96,8 +110,7 @@ enum AdBlock {
 
         // 先查编译缓存：WebKit 编译过的规则会落盘，命中就零编译直接加载。
         // 二次启动时这一步把「解析 + 编译 53 条规则」整个省掉，规则能赶在首屏请求前就位。
-        let cachedNet = (try? await store.lookUpContentRuleList(forIdentifier: netID)) ?? nil
-        if let cachedNet {
+        if let cachedNet = await cachedList(store, netID) {
             lists.append(cachedNet)
         } else if let net = try? await store.compileContentRuleList(
             forIdentifier: netID, encodedContentRuleList: netJSON) {
@@ -106,8 +119,7 @@ enum AdBlock {
 
         let cssJSON = #"{"trigger":{"url-filter":".*"},"action":{"type":"css-display-none","selector":"\#(splashSelectors)"}}"#
         let cssID = "hj-css-" + digest(cssJSON)
-        let cachedCss = (try? await store.lookUpContentRuleList(forIdentifier: cssID)) ?? nil
-        if let cachedCss {
+        if let cachedCss = await cachedList(store, cssID) {
             lists.append(cachedCss)
         } else if let css = try? await store.compileContentRuleList(
             forIdentifier: cssID, encodedContentRuleList: "[" + cssJSON + "]") {
@@ -115,8 +127,8 @@ enum AdBlock {
         }
 
         // 清掉旧 identifier 留下的缓存，免得越积越多
-        try? await store.removeContentRuleList(forIdentifier: "haijiao-adblock-net")
-        try? await store.removeContentRuleList(forIdentifier: "haijiao-adblock-css")
+        dropList(store, "haijiao-adblock-net")
+        dropList(store, "haijiao-adblock-css")
         return lists
     }
 
