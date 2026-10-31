@@ -162,22 +162,30 @@ final class ImageGate {
     /// 图片在独立域名（pic.*.top）上，同样有防盗链/风控：
     ///   ① URLSession + 站点 Cookie + Referer（快）
     ///   ② 失败就回退到页面内 fetch（base64），和网页版走同一条路（慢但一定能成）
+
+
+    /// 拿图片：下载 .txt 原文 → 用站点那套打乱字母表的 base64 解 → UIImage。
+    /// 不再需要网页通道、也不需要 Cookie（实测 8 种头组合都是 200）。
     @MainActor
     static func fetchImage(_ url: URL) async -> UIImage? {
-        // 一屏 40 条 × 3 图 = 120 个请求，不限并发会把网络/WebContent 打满
         await ImageGate.shared.acquire()
         defer { ImageGate.shared.release() }
-
-        if let img = await directImage(url) { return img }
-        if let b64 = try? await WebBridge.shared.fetchBase64Image(url.absoluteString),
-           let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters),
-           let img = UIImage(data: data) {
-            return img
-        }
-        return nil
+        guard let raw = await fetchImageText(url) else { return nil }
+        return SiteImage.image(from: raw)
     }
 
-    /// 防盗链有的只认具体页面，所以逐个 Referer 试；都不行才交给网页通道。
+    static func fetchImageText(_ url: URL) async -> String? {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 20
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
+        req.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
+        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 { return nil }
+        return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
+    }
+
+    /// 旧路径：逐个 Referer 试（留着兜底，正常不会走到）
     static func directImage(_ url: URL) async -> UIImage? {
         let referers: [String?] = ["\(base)/home", "\(base)/", nil]
         let cookie = await WebBridge.shared.cookieHeader()

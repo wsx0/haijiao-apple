@@ -85,13 +85,7 @@ final class TopicStore: ObservableObject {
     func loadFirstIfNeeded() async {
         if started { return }
         started = true
-        // 延迟 2 秒预热隐藏 WebView，并把页面已解码的图片收下来（站点把图片编码过，
-        // 自己解不开；但页面自己会解成 data URL，收集比逆向省事且稳定）
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            _ = await WebBridge.shared.collectImages(scrolls: 8)
-        }
-        // 原来的注释保留说明
+        // 图片走自己的解码器（SiteImage），不再需要预热隐藏 WebView 去收集
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await WebBridge.shared.prepare(timeout: 15)
@@ -158,22 +152,23 @@ struct TopicRow: View {
                 .lineLimit(3)
                 .foregroundStyle(.primary)
 
-            // 站点图片是自定义编码的（#FEy + 位置相关变换），原生解不开；
-            // 与其摆一排灰块占两屏高度，不如改成文字摘要 —— 列表更紧凑也更快。
-            // 要看图：点进详情 → 底部「用网页打开」。
-            if let lite = topic.liteContent, !lite.isEmpty {
+            // 图片解码算法已经搞出来了（SiteImage），恢复三图预览
+            let imgs = topic.displayImages
+            if !imgs.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(Array(imgs.enumerated()), id: \.offset) { _, item in
+                        RemoteImage(attID: item.id, url: item.url)
+                            .frame(height: 104)
+                            .frame(maxWidth: .infinity)
+                            .clipped()
+                            .cornerRadius(6)
+                    }
+                }
+            } else if let lite = topic.liteContent, !lite.isEmpty {
                 Text(lite)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
-            } else if !topic.displayImages.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: "photo.on.rectangle.angled")
-                        .font(.system(size: 12))
-                    Text("含 \(topic.displayImages.count) 张图片")
-                        .font(.system(size: 12))
-                }
-                .foregroundStyle(.tertiary)
             }
 
             HStack(spacing: 12) {
