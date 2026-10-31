@@ -17,42 +17,30 @@ async function main() {
   await ctx.addInitScript(() => { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); });
   const page = await ctx.newPage();
 
-  await page.goto(LIST, { waitUntil: 'domcontentloaded', timeout: 90000 });
-  await page.waitForTimeout(5000);
+  // Cloudflare 拦渲染但放静态请求：直接用 HTTP 拿 HTML
+  const resp = await page.request.get(LIST, { headers: { 'User-Agent': UA, 'Accept-Language': 'zh-CN,zh;q=0.9' } });
+  const html = await resp.text();
+  console.log(`列表页 HTTP ${resp.status()}  ${html.length}B`);
 
-  const title = await page.evaluate(() => document.title);
-  console.log('页面标题:', title);
+  let list = [];
+  // 列表页里每个脚本形如 <a href="/zh-CN/scripts/12345-name">显示名</a>
+  const re = /<a[^>]+href="([^"]*\/scripts\/(\d+)(?:-[^"]*)?)"[^>]*>([\s\S]{0,200}?)<\/a>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const href = m[1].startsWith('http') ? m[1] : 'https://sleazyfork.org' + m[1];
+    const name = m[3].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    if (!name) continue;
+    list.push({ name, href, cells: [], id: m[2] });
+  }
+  console.log(`正则命中 ${list.length} 条`);
 
-  // 抓表格行
-  const rows = await page.evaluate(() => {
-    const out = [];
-    // GreasyFork/SleazyFork 列表是 table#scripts-list 或 .script-list
-    const table = document.querySelector('#scripts-list, table.listing, table');
-    const trs = table ? [...table.querySelectorAll('tr')] : [];
-    for (const tr of trs) {
-      const link = tr.querySelector('a[href*="/scripts/"]');
-      if (!link) continue;
-      const tds = [...tr.querySelectorAll('td')];
-      const txt = i => (tds[i] ? tds[i].innerText.replace(/\s+/g, ' ').trim() : '');
-      out.push({
-        name: link.innerText.trim(),
-        href: link.href,
-        cells: tds.map(td => td.innerText.replace(/\s+/g, ' ').trim()),
-      });
-    }
-    return out;
-  });
-
-  console.log(`列表行数: ${rows.length}`);
-  for (const r of rows.slice(0, 5)) console.log('  示例:', JSON.stringify(r).slice(0, 240));
-
-  // 如果表格没抓到，退化为抓所有脚本链接
-  let list = rows;
   if (list.length === 0) {
-    list = await page.evaluate(() => [...document.querySelectorAll('a[href*="/scripts/"]')]
-      .filter(a => /\/scripts\/\d+/.test(a.href))
-      .map(a => ({ name: a.innerText.trim(), href: a.href, cells: [] })));
-    console.log(`退化抓取: ${list.length} 个链接`);
+    // 退化：只拿 id
+    const ids = [...new Set([...html.matchAll(/\/scripts\/(\d+)/g)].map(x => x[1]))];
+    console.log(`退化拿到 ${ids.length} 个 id: ${ids.slice(0, 20).join(',')}`);
+    for (const id of ids) {
+      list.push({ id, name: `#${id}`, href: `https://sleazyfork.org/zh-CN/scripts/${id}`, cells: [] });
+    }
   }
 
   // 去重（同一脚本在标题与安装列各出现一次）
@@ -76,23 +64,20 @@ async function main() {
       const s = queue.shift();
       const p = await ctx.newPage();
       try {
-        await p.goto(s.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await p.waitForTimeout(1200);
-        const info = await p.evaluate(() => {
-          const g = sel => (document.querySelector(sel)?.innerText || '').replace(/\s+/g, ' ').trim();
-          const meta = {};
-          for (const dt of document.querySelectorAll('dl dt')) {
-            const k = dt.innerText.replace(/\s+/g, ' ').trim();
-            const v = dt.nextElementSibling?.innerText.replace(/\s+/g, ' ').trim() || '';
-            if (k) meta[k] = v.slice(0, 120);
-          }
-          return {
-            title: document.title,
-            desc: g('#script-description') || g('.script-description') || '',
-            meta,
-            codeLink: [...document.querySelectorAll('a[href*="code"]')].map(a => a.href)[0] || '',
-          };
-        });
+        const hr = await p.request.get(s.href, { headers: { 'User-Agent': UA, 'Accept-Language': 'zh-CN,zh;q=0.9' } });
+        const h = await hr.text();
+        const strip = x => x.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const pick = (re) => { const mm = h.match(re); return mm ? strip(mm[1]).slice(0, 400) : ''; };
+        const info = {
+          title: pick(/<title>([\s\S]*?)<\/title>/),
+          desc: pick(/<div[^>]*id="script-description"[^>]*>([\s\S]*?)<\/div>/),
+          meta: {
+            '版本': pick(/Version[\s\S]{0,200}?<dd[^>]*>([\s\S]{0,40}?)<\/dd>/i),
+            '更新': pick(/Updated[\s\S]{0,200}?<dd[^>]*>([\s\S]{0,60}?)<\/dd>/i),
+          },
+          codeLink: (h.match(/href="([^"]*\/code[^"]*)"/) || [])[1] || '',
+          httpStatus: hr.status(),
+        };
         detail.push({ ...s, ...info });
         console.log(`  ✓ ${s.id} ${s.name.slice(0, 34)} | ${info.meta['版本'] || info.meta['Version'] || '?'} | ${(info.desc || '').slice(0, 50)}`);
       } catch (e) {
