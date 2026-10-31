@@ -192,8 +192,10 @@ struct NativeHomeView: View {
         NavigationView {
             List {
                 ForEach(store.topics) { t in
-                    Button {
-                        onOpen(TopicAPI.detailURL(topicId: t.id))
+                    NavigationLink {
+                        TopicDetailView(topicId: t.id, onOpenWeb: { id in
+                            onOpen(TopicAPI.detailURL(topicId: id))
+                        })
                     } label: {
                         TopicRow(topic: t)
                     }

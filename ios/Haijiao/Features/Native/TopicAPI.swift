@@ -107,6 +107,35 @@ enum TopicAPI {
         return try parsePage(json)
     }
 
+    // MARK: - 详情
+
+    /// GET /api/topic/<id> —— 与列表同一套信封（三层 base64）。
+    static func fetchDetail(topicId: Int) async throws -> TopicDetail {
+        guard let url = URL(string: "\(base)/api/topic/\(topicId)") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 20
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
+        req.setValue("211112203214", forHTTPHeaderField: "mver")
+        req.setValue("null", forHTTPHeaderField: "x-user-id")
+        req.setValue("null", forHTTPHeaderField: "x-user-token")
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            throw APIError.http(http.statusCode)
+        }
+        guard let env = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let payload = env["data"] as? String,
+              let json = decodePayload(payload),
+              let root = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else {
+            throw APIError.payload("详情解析失败：" + (String(data: data.prefix(80), encoding: .utf8) ?? ""))
+        }
+        return TopicDetail(dict: root)
+    }
+
     // MARK: - 图片
 
 /// 图片请求并发闸门（同时最多 6 个）
