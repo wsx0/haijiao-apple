@@ -25,6 +25,7 @@ on:
       - 'scripts/api-detail-probe.mjs'
       - 'scripts/img-probe.mjs'
       - 'scripts/img2-probe.mjs'
+      - 'scripts/img3-probe.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -92,6 +93,9 @@ jobs:
       - name: 图片编码拆解
         run: node scripts/img2-probe.mjs
 
+      - name: 网页图片 DOM 取证
+        run: node scripts/img3-probe.mjs
+
       - name: 摘要
         if: always()
         run: |
@@ -100,7 +104,7 @@ jobs:
           echo "--- 浮层数量 ---"
           for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
           echo "--- A/B 结果 ---"
-          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ out10/ out11/ out12/ out13/ out14/ out15/ || true
+          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ out10/ out11/ out12/ out13/ out14/ out15/ out16/ || true
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -122,5 +126,6 @@ jobs:
             out13/
             out14/
             out15/
+            out16/
           if-no-files-found: warn
           retention-days: 14
