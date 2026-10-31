@@ -18,17 +18,26 @@ enum TopicAPI {
     static let ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
         + "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
-    /// 层级 1：base64 → 若还是文本形式的 base64 再解一层 → JSON Data
+    /// 站点把 JSON 包了**多层** base64（实测三层：WlhsS2… → ZXlKd1… → eyJwYWdl… → {"page":…}）。
+    /// 层数可能随接口/版本变化，所以不写死：一直解到「解出来是合法 JSON」为止，最多 6 层。
     static func decodePayload(_ payload: String) -> Data? {
-        guard let layer1 = Data(base64Encoded: payload, options: .ignoreUnknownCharacters) else {
-            return nil
+        var current = payload.trimmingCharacters(in: .whitespacesAndNewlines)
+        for _ in 0..<6 {
+            guard let bytes = Data(base64Encoded: current, options: .ignoreUnknownCharacters),
+                  !bytes.isEmpty else {
+                return nil
+            }
+            if (try? JSONSerialization.jsonObject(with: bytes)) != nil {
+                return bytes                    // 已经是 JSON
+            }
+            guard let text = String(data: bytes, encoding: .utf8) else {
+                return nil                      // 解出二进制了，说明不是编码层
+            }
+            let next = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if next.isEmpty || next == current { return nil }
+            current = next
         }
-        if (try? JSONSerialization.jsonObject(with: layer1)) != nil {
-            return layer1
-        }
-        guard let text = String(data: layer1, encoding: .utf8) else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return Data(base64Encoded: trimmed, options: .ignoreUnknownCharacters)
+        return nil
     }
 
     enum APIError: LocalizedError {
