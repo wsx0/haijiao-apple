@@ -260,7 +260,7 @@ struct TopicDetailView: View {
                                 .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         case .image(let u):
-                            RemoteImage(url: u)
+                            RemoteImage(url: u, maxSide: 1400)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 260)
                                 .clipped()
@@ -351,7 +351,7 @@ struct TopicDetailView: View {
         } label: {
             ZStack {
                 if let u = TopicAPI.imageURL(cover) {
-                    RemoteImage(url: u)
+                    RemoteImage(url: u, maxSide: 1400)
                         .frame(maxWidth: .infinity)
                         .frame(height: 190)
                         .clipped()
@@ -450,7 +450,7 @@ struct TopicDetailView: View {
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 if let u = door.imageURL {
-                    RemoteImage(url: u)
+                    RemoteImage(url: u, maxSide: 1400)
                         .frame(width: 84, height: 84)
                         .clipped()
                         .cornerRadius(6)

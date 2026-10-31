@@ -23,6 +23,8 @@ struct RemoteImage: View {
     /// attachment id：优先用它去查「页面已解码」的图片表
     var attID: Int? = nil
     let url: URL?
+    /// 长边上限。列表格子 300 够用；详情页大图必须给大的，否则会糊。
+    var maxSide: CGFloat = 300
     @State private var image: UIImage?
     @State private var failed = false
 
@@ -44,14 +46,15 @@ struct RemoteImage: View {
     private func load() async {
         guard let url else { return }
         failed = false
-        let key = url.absoluteString
+        // 缓存按「URL + 尺寸」分开：缩略图和大图不能互相顶掉
+        let key = url.absoluteString + "@" + String(Int(maxSide))
         if let cached = NativeImageCache.shared.get(key) {
             image = cached
             return
         }
 
         // fetchImage 内部已经在后台完成解码 + 下采样，这里直接落缓存
-        if let thumb = await TopicAPI.fetchImage(url) {
+        if let thumb = await TopicAPI.fetchImage(url, maxSide: maxSide) {
             NativeImageCache.shared.set(key, thumb)
             image = thumb
             ImageStats.shared.recordOK()

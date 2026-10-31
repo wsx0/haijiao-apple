@@ -27,7 +27,8 @@ struct WebVideoPlayer: UIViewRepresentable {
         wv.backgroundColor = .black
         wv.scrollView.isScrollEnabled = false
         wv.scrollView.backgroundColor = .black
-        load(wv)
+        // 直接用 WebKit 打开 m3u8：iOS 的 WebKit 有内置 HLS 播放器，比 loadHTMLString + <video> 可靠（后者页面 origin 是 about:blank，跨域会被拦）
+        wv.load(URLRequest(url: url))
         return wv
     }
 

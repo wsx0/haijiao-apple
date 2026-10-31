@@ -169,7 +169,7 @@ final class ImageGate {
     /// 解码（30KB 文本 → 字节 → base64 → UIImage）必须放到后台：
     /// 一屏 120 张图，全在主线程做会把滚动卡住。
     @MainActor
-    static func fetchImage(_ url: URL) async -> UIImage? {
+    static func fetchImage(_ url: URL, maxSide: CGFloat = 300) async -> UIImage? {
         await ImageGate.shared.acquire()
         defer { ImageGate.shared.release() }
 
@@ -180,7 +180,8 @@ final class ImageGate {
         let decoded = await Task.detached(priority: .utility) { () -> UIImage? in
             guard let full = SiteImage.image(from: raw) else { return nil }
             // 列表格子只有 ~100pt，先缩到 300pt 存缓存，省内存也省渲染
-            return full.preparingThumbnail(of: CGSize(width: 300, height: 300)) ?? full
+            let side = max(maxSide, 120)
+            return full.preparingThumbnail(of: CGSize(width: side, height: side)) ?? full
         }.value
         if decoded == nil {
             // 拿到了文本但解不出图：把开头一小段带出来，便于判断是格式变了还是请求被拦

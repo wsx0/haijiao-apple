@@ -19,6 +19,24 @@ final class WebBridge: NSObject, WKNavigationDelegate {
 
     static let shared = WebBridge()
 
+    /// WebKit 只有一个页面，evaluateJavaScript 全在主线程排队。
+    /// 并发太高会把主线程压满、导致轮询超时（图片「只加载一部分」就是这么来的）。
+    private var inFlight = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    @MainActor
+    private func acquireSlot() async {
+        if inFlight < 2 { inFlight += 1; return }
+        await withCheckedContinuation { c in waiters.append(c) }
+        inFlight += 1
+    }
+
+    @MainActor
+    private func releaseSlot() {
+        inFlight -= 1
+        if let c = waiters.first { waiters.removeFirst(); c.resume() }
+    }
+
     private var web: WKWebView?
     private var ready = false
     private var loading = false
@@ -184,6 +202,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     /// 不依赖 evaluateJavaScript 对 Promise 的处理（真机上不可靠）：
     /// JS 只负责把结果写进 window.__hj_r[token]，原生轮询取。
     func fetchRaw(path: String) async throws -> String {
+        await acquireSlot()
+        defer { Task { @MainActor in releaseSlot() } }
         await prepare()
         guard let w = web else { throw TopicAPI.APIError.envelope("WebView 不可用") }
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
@@ -199,8 +219,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         """
         _ = try? await w.evaluateJavaScript(js)
 
-        for _ in 0..<120 {                       // 最多等 12 秒
-            try? await Task.sleep(nanoseconds: 100_000_000)
+        for _ in 0..<100 {                       // 最多等 20 秒（200ms × 100）
+            try? await Task.sleep(nanoseconds: 200_000_000)
             let v = try? await w.evaluateJavaScript("(window.__hj_r && window.__hj_r['\(token)']) || ''")
             guard let s = v as? String, !s.isEmpty else { continue }
             if s.hasPrefix("__E__") {
