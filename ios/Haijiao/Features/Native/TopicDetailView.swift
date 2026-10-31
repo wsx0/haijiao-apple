@@ -223,12 +223,16 @@ struct TopicDetailView: View {
     let onOpenWeb: (Int) -> Void
 
     @StateObject private var store = TopicDetailStore()
+    @State private var showPlayer = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 if let d = store.detail {
                     header(d)
+                    if let vurl = d.videoURL {
+                        videoEntry(url: vurl, isPreview: d.videoIsPreview, cover: d.attachments.first { ($0.category ?? "").lowercased().contains("video") }?.coverUrl)
+                    }
                     if d.isPaid {
                         paidHint()
                     }
@@ -268,6 +272,12 @@ struct TopicDetailView: View {
             .padding(16)
         }
         .navigationTitle("详情")
+        .sheet(isPresented: $showPlayer) {
+            if let d = store.detail, let vurl = d.videoURL {
+                VideoPlayerView(url: vurl, title: d.title ?? "", isPreview: d.videoIsPreview)
+                    .preferredColorScheme(.dark)
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.load(topicId: topicId) }
     }
@@ -291,6 +301,42 @@ struct TopicDetailView: View {
             }
             Divider()
         }
+    }
+
+    private func videoEntry(url: URL, isPreview: Bool, cover: String?) -> some View {
+        Button {
+            showPlayer = true
+        } label: {
+            ZStack {
+                if let u = TopicAPI.imageURL(cover) {
+                    RemoteImage(url: u)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 190)
+                        .clipped()
+                        .cornerRadius(8)
+                } else {
+                    RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.2))
+                        .frame(height: 190)
+                }
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 52))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.white)
+                VStack {
+                    Spacer()
+                    HStack {
+                        Text(isPreview ? "点击播放（预览片段）" : "点击播放")
+                            .font(.system(size: 12, weight: .semibold))
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(.black.opacity(0.55), in: Capsule())
+                            .foregroundStyle(.white)
+                        Spacer()
+                    }
+                    .padding(8)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func paidHint() -> some View {
