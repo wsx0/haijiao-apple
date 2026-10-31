@@ -113,8 +113,8 @@ enum TopicAPI {
         req.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
         req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
         req.setValue("211112203214", forHTTPHeaderField: "mver")
-        req.setValue("null", forHTTPHeaderField: "x-user-id")
-        req.setValue("null", forHTTPHeaderField: "x-user-token")
+        req.setValue(authUid ?? "null", forHTTPHeaderField: "x-user-id")
+        req.setValue(authToken ?? "null", forHTTPHeaderField: "x-user-token")
         if let c = cookie, !c.isEmpty {
             req.setValue(c, forHTTPHeaderField: "Cookie")
         }
@@ -148,8 +148,8 @@ enum TopicAPI {
         req.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
         req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
         req.setValue("211112203214", forHTTPHeaderField: "mver")
-        req.setValue("null", forHTTPHeaderField: "x-user-id")
-        req.setValue("null", forHTTPHeaderField: "x-user-token")
+        req.setValue(authUid ?? "null", forHTTPHeaderField: "x-user-id")
+        req.setValue(authToken ?? "null", forHTTPHeaderField: "x-user-token")
 
         let (data, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
@@ -271,6 +271,77 @@ final class ImageGate {
     }
 
     /// 详情页（SPA 路由 post/details），点条目时交给内置 WebView 打开
+    // MARK: - 登录态
+
+    /// 已登录的 uid / token（存 UserDefaults，未登录为 nil）
+    static var authUid: String? {
+        let v = UserDefaults.standard.string(forKey: "hj.uid")
+        return (v?.isEmpty == false) ? v : nil
+    }
+    static var authToken: String? {
+        let v = UserDefaults.standard.string(forKey: "hj.token")
+        return (v?.isEmpty == false) ? v : nil
+    }
+    static var isLoggedIn: Bool { authToken != nil }
+
+    /// 登录：POST /api/login/signin {username, password}
+    /// 验证码实测非必需；响应里 token 的字段名不确定，这里做多字段兼容。
+    static func login(username: String, password: String) async throws -> (uid: Int, token: String) {
+        guard let url = URL(string: "\(base)/api/login/signin") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 25
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("\(base)/login", forHTTPHeaderField: "Referer")
+        req.setValue(base, forHTTPHeaderField: "Origin")
+        req.setValue("211112203214", forHTTPHeaderField: "mver")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "username": username.trimmingCharacters(in: .whitespacesAndNewlines),
+            "password": password,
+        ])
+
+        let (data, _) = try await URLSession.shared.data(for: req)
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        guard let env = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw APIError.envelope("登录响应非 JSON：" + String(raw.prefix(120)))
+        }
+        // 失败：{success:false, message:"..."}
+        if let ok = env["success"] as? Bool, ok == false {
+            throw APIError.envelope((env["message"] as? String) ?? "登录失败")
+        }
+        // 成功后 data 可能是加密的，也可能直接是对象
+        var payload: [String: Any] = env
+        if let s = env["data"] as? String, let plain = decodePayload(s),
+           let obj = (try? JSONSerialization.jsonObject(with: plain)) as? [String: Any] {
+            payload = obj
+        } else if let d = env["data"] as? [String: Any] {
+            payload = d
+        }
+
+        // 掏 uid / token（多字段兼容）
+        func find(_ keys: [String]) -> String? {
+            for k in keys {
+                if let v = payload[k] as? String, !v.isEmpty, v != "null" { return v }
+                if let v = payload[k] as? Int { return String(v) }
+                if let nested = payload[k] as? [String: Any] {
+                    for k2 in keys {
+                        if let v = nested[k2] as? String, !v.isEmpty, v != "null" { return v }
+                        if let v = nested[k2] as? Int { return String(v) }
+                    }
+                }
+            }
+            return nil
+        }
+        let token = find(["token", "userToken", "user_token", "accessToken", "x-user-token"])
+        let uidStr = find(["userId", "user_id", "id", "uid", "x-user-id"])
+        guard let tk = token, let uidS = uidStr, let uid = Int(uidS) else {
+            throw APIError.envelope("登录成功但没解析出 token/uid：" + String(raw.prefix(200)))
+        }
+        return (uid, tk)
+    }
+
     /// 作者主页（站点路由 /homepage/<userId>，见站点 JS 的 LAYOUT_PAGE_PREFIXES）
     static func homepageURL(userId: Int) -> URL? {
         URL(string: "\(base)/homepage/\(userId)")

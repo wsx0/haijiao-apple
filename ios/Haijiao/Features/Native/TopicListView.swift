@@ -308,6 +308,8 @@ struct NativeHomeView: View {
     @State private var showDiag = false
     @State private var searchText = ""
     @State private var activeTab: Int = 0
+    @State private var showLogin = false
+    @State private var loggedIn = TopicAPI.isLoggedIn
 
     /// 显示在标题栏，方便一眼确认装的是哪一版
     private var appVersion: String {
@@ -453,7 +455,12 @@ struct NativeHomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 14) {
+                    HStack(spacing: 13) {
+                        Button {
+                            showLogin = true
+                        } label: {
+                            Image(systemName: loggedIn ? "person.crop.circle.fill" : "person.crop.circle")
+                        }
                         Button {
                             showDiag = true
                         } label: {
@@ -465,6 +472,12 @@ struct NativeHomeView: View {
                             Image(systemName: "safari")
                         }
                     }
+                }
+            }
+            .sheet(isPresented: $showLogin) {
+                LoginView { _, _ in
+                    loggedIn = true
+                    Task { await store.reload() }   // 带登录态重新拉列表
                 }
             }
             .sheet(isPresented: $showDiag) {
