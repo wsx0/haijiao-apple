@@ -175,44 +175,52 @@ final class ImageGate {
         // continuation 永远不会被 resume，inFlight 也就永远不归零，
         // 排队的图全部卡死。这就是「只加载一部分」的根因。
         // URLSession 自己就有每主机连接上限（约 6），限流交给它更安全。
-        guard let raw = await fetchImageText(url) else {
-            ImageStats.shared.record(failure: "下载失败(直连+网页) \(url.host ?? "?")")
+        guard let raw = await fetchImageData(url) else {
+            ImageStats.shared.record(failure: "下载失败 \(url.host ?? "?")")
             return nil
         }
+        let side = max(maxSide, 120)
         let decoded = await Task.detached(priority: .utility) { () -> UIImage? in
+            // 关键：传 Data 而不是 String —— 密文含非 UTF-8 字节，
+            // 一旦经过 String(data:encoding:) 再取 .utf8，字节会膨胀错位。
             guard let full = SiteImage.image(from: raw) else { return nil }
-            // 列表格子只有 ~100pt，先缩到 300pt 存缓存，省内存也省渲染
-            let side = max(maxSide, 120)
             return full.preparingThumbnail(of: CGSize(width: side, height: side)) ?? full
         }.value
         if decoded == nil {
-            // 拿到了文本但解不出图：把开头一小段带出来，便于判断是格式变了还是请求被拦
-            let head = String(raw.prefix(24)).replacingOccurrences(of: "\n", with: " ")
-            ImageStats.shared.record(failure: "解码失败 head=\(head)")
+            let head = String(decoding: raw.prefix(20), as: UTF8.self)
+                .replacingOccurrences(of: "\n", with: " ")
+            ImageStats.shared.record(failure: "解码失败 n=\(raw.count) head=\(head)")
         }
         return decoded
     }
 
-    static func fetchImageText(_ url: URL) async -> String? {
-        // 诊断页实测：原生 URLSession 拿这张图是 200 + 257KB，所以 WebKit 兜底是多余的
-        // （而且它把主线程压满，反而拖慢整页加载）。这里只保留原生一条路。
-        if let t = await directImageText(url) { return t }
-        // 真失败才退到页面内 fetch（默认不会走到）
-        if let t = try? await WebBridge.shared.fetchRaw(path: url.absoluteString), !t.isEmpty {
-            return t
-        }
-        return nil
-    }
-
-    private static func directImageText(_ url: URL) async -> String? {
+    /// 拿图片原始字节（不做任何编码转换）
+    static func fetchImageData(_ url: URL) async -> Data? {
         var req = URLRequest(url: url)
         req.timeoutInterval = 20
         req.setValue(ua, forHTTPHeaderField: "User-Agent")
         req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
         req.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
-        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
-        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 { return nil }
-        return String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1)
+        if let (data, resp) = try? await URLSession.shared.data(for: req) {
+            if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
+                // 失败再走页面内 fetch
+                if let s = try? await WebBridge.shared.fetchRaw(path: url.absoluteString), !s.isEmpty {
+                    return Data(s.utf8)
+                }
+                return nil
+            }
+            return data
+        }
+        if let s = try? await WebBridge.shared.fetchRaw(path: url.absoluteString), !s.isEmpty {
+            return Data(s.utf8)
+        }
+        return nil
+    }
+
+    /// 给诊断页用的文本版本（内部仍走 fetchImageData，不做编码中转）
+    static func fetchImageText(_ url: URL) async -> String? {
+        guard let d = await fetchImageData(url) else { return nil }
+        return String(data: d, encoding: .utf8) ?? String(data: d, encoding: .isoLatin1)
     }
 
     /// 旧路径：逐个 Referer 试（留着兜底，正常不会走到）

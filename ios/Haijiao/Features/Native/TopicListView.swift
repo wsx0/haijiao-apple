@@ -29,6 +29,9 @@ struct RemoteImage: View {
     var contentMode: ContentMode = .fill
     @State private var image: UIImage?
     @State private var failed = false
+    /// List 滚动会反复触发 onAppear，失败图会被无限重试（实测累计到 2660 次）。
+    /// 用这个锁住，只加载一次。
+    @State private var started = false
 
     var body: some View {
         Group {
@@ -44,10 +47,11 @@ struct RemoteImage: View {
             }
         }
         .onAppear {
-            // 不用 .task：.task 的生命周期绑在视图上，List 复用单元格时会**取消**它，
-            // 正在下载的图就被打断，永远出不来 —— 表现就是「只加载一部分」。
-            // 这里起独立 Task，视图滚走也让它跑完，结果进缓存，回来直接命中。
-            guard image == nil, !failed else { return }
+            // 不用 .task（生命周期绑视图，List 复用单元格时会取消它，下载被打断）。
+            // 但也**不能**每次出现都重试：List 滚动会反复触发 onAppear，
+            // 失败图会被无限重试（实测累计到 2660 次）。用 started 锁住只跑一次。
+            guard !started else { return }
+            started = true
             Task { await load() }
         }
     }

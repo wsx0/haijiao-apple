@@ -90,16 +90,18 @@ final class DiagModel: ObservableObject {
             let ok = WebBridge.shared.isReady
             return (ok, ok ? "已加载 haijiao.com" : "加载失败/超时", 0)
         }
-        // ⑧ 解码：拿到文本后走真正的解码器，看能不能出图
+        // ⑧ 解码：用**和列表同一条路**（URLSession → Data → SiteImage）验证
         await test(7) {
-            let raw = try await WebBridge.shared.fetchRaw(path: diagSampleImage.absoluteString)
             let start = Date()
-            guard let img = SiteImage.image(from: raw) else {
-                let head = String(raw.prefix(24)).replacingOccurrences(of: "\n", with: " ")
-                return (false, "解码失败 head=\(head)", raw.count)
+            guard let data = await TopicAPI.fetchImageData(diagSampleImage) else {
+                return (false, "下载失败", 0)
+            }
+            guard let img = SiteImage.image(from: data) else {
+                let head = String(decoding: data.prefix(20), as: UTF8.self)
+                return (false, "解码失败 n=\(data.count) head=\(head)", data.count)
             }
             let ms = Int(Date().timeIntervalSince(start) * 1000)
-            return (true, "解码成功 \(Int(img.size.width))×\(Int(img.size.height)) \(ms)ms", raw.count)
+            return (true, "解码成功 \(Int(img.size.width))×\(Int(img.size.height)) \(ms)ms", data.count)
         }
     }
 
