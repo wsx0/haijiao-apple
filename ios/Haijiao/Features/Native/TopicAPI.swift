@@ -98,7 +98,9 @@ enum TopicAPI {
             let enc = kw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kw
             path = "/api/topic/search?keyword=\(enc)&page=\(page)"
         } else if nodeId > 0 {
-            path = "/api/topic/hot/topics?page=\(page)&nodeId=\(nodeId)"
+            // 真实接口（从站点 home.js 挖到）：/topic/node/topics?nodeId=&page=&type=1
+            // 注意 /topic/hot/topics 会忽略 nodeId（实测所有 nodeId 返回同一批）。
+            path = "/api/topic/node/topics?nodeId=\(nodeId)&page=\(page)&type=1"
         } else {
             path = "/api/topic/hot/topics?page=\(page)"
         }
