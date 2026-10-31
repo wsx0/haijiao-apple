@@ -27,6 +27,7 @@ on:
       - 'scripts/img2-probe.mjs'
       - 'scripts/img3-probe.mjs'
       - 'scripts/img4-probe.mjs'
+      - 'scripts/img5-probe.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -100,6 +101,9 @@ jobs:
       - name: 图片解码函数定位
         run: node scripts/img4-probe.mjs
 
+      - name: 明文密文配对抓取
+        run: node scripts/img5-probe.mjs
+
       - name: 摘要
         if: always()
         run: |
@@ -108,7 +112,7 @@ jobs:
           echo "--- 浮层数量 ---"
           for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
           echo "--- A/B 结果 ---"
-          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ out10/ out11/ out12/ out13/ out14/ out15/ out16/ out17/ || true
+          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ out10/ out11/ out12/ out13/ out14/ out15/ out16/ out17/ out18/ || true
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -132,5 +136,6 @@ jobs:
             out15/
             out16/
             out17/
+            out18/
           if-no-files-found: warn
           retention-days: 14
