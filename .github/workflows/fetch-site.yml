@@ -38,6 +38,7 @@ on:
       - 'scripts/sf-probe.mjs'
       - 'scripts/sf-list-probe.mjs'
       - 'scripts/kitty-probe.mjs'
+      - 'scripts/kitty-verify.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -144,6 +145,11 @@ jobs:
       - name: Kitty猫脚本分析
         run: node scripts/kitty-probe.mjs
 
+      - name: Kitty 接口验证
+        env:
+          KITTY_CODE: ${{ secrets.KITTY_CODE }}
+        run: node scripts/kitty-verify.mjs
+
       - name: 摘要
         if: always()
         run: |
@@ -152,7 +158,7 @@ jobs:
           echo "--- 浮层数量 ---"
           for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
           echo "--- A/B 结果 ---"
-          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ out10/ out11/ out12/ out13/ out14/ out15/ out16/ out17/ out18/ out19/ out20/ out21/ out22/ out23/ out24/ out25/ out26/ out27/ out28/ || true
+          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ out10/ out11/ out12/ out13/ out14/ out15/ out16/ out17/ out18/ out19/ out20/ out21/ out22/ out23/ out24/ out25/ out26/ out27/ out28/ out29/ || true
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -187,5 +193,6 @@ jobs:
             out26/
             out27/
             out28/
+            out29/
           if-no-files-found: warn
           retention-days: 14
