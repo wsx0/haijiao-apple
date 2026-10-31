@@ -40,7 +40,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     private var web: WKWebView?
     private var ready = false
     private var loading = false
-    private var slotWaiters: [CheckedContinuation<Void, Never>] = []
+    /// prepare/waitFinish 的等待队列（原有）
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     private func makeWebView() -> WKWebView {
         let cfg = WKWebViewConfiguration()
