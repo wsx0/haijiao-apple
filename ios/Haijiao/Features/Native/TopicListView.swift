@@ -203,19 +203,14 @@ final class TopicStore: ObservableObject {
 
 struct TopicRow: View {
     let topic: Topic
-    /// 点卡片（除作者行外）→ 详情
-    let detailDestination: AnyView
-    /// 点头像/昵称 → 作者主页
+    /// 长按菜单里「查看作者主页」
     var onTapUser: ((Int) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            // 作者行放最上面、且**不在** NavigationLink 里，这样头像点击不会被抢
             authorRow
 
-            // 标题 + 图片 + 统计整块可点（进详情）
-            NavigationLink(destination: detailDestination) {
-                VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: 9) {
                     Text(topic.title?.isEmpty == false ? (topic.title ?? "") : (topic.liteContent ?? "（无标题）"))
                         .font(.system(size: 16, weight: .semibold))
                         .lineLimit(3)
@@ -274,27 +269,23 @@ struct TopicRow: View {
     /// 这样头像的点击不会被卡片的导航抢走。
     private var authorRow: some View {
         HStack(spacing: 6) {
-            Button {
-                if let uid = topic.user?.id { onTapUser?(uid) }
-            } label: {
-                HStack(spacing: 6) {
-                    if let head = TopicAPI.imageURL(topic.user?.avatar) {
-                        RemoteImage(url: head, maxSide: 120)
-                            .frame(width: 18, height: 18)
-                            .clipShape(Circle())
-                    } else {
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(Theme.subtext)
-                    }
-                    Text(topic.user?.nickname ?? "匿名")
-                        .font(.system(size: 12))
+            // 纯展示：卡片整体是 NavigationLink，内部按钮会被吞掉。
+            // 作者主页入口放在长按菜单里（contextMenu），稳定可靠。
+            HStack(spacing: 6) {
+                if let head = TopicAPI.imageURL(topic.user?.avatar) {
+                    RemoteImage(url: head, maxSide: 120)
+                        .frame(width: 18, height: 18)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 16))
                         .foregroundStyle(Theme.subtext)
-                        .lineLimit(1)
                 }
+                Text(topic.user?.nickname ?? "匿名")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.subtext)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .disabled(topic.user?.id == nil)
 
             if let badge = badgeText {
                 Text(badge)
@@ -335,25 +326,38 @@ struct NativeHomeView: View {
 
 
     var body: some View {
-        NavigationStack {
+        NavigationView {
             List {
                 ForEach(store.topics) { t in
-                    // 结构：作者行在 NavigationLink 外面，标题/图片/统计在 NavigationLink 里面。
-                    // 这样「点卡片进详情」和「点头像进主页」互不抢夺，也不依赖手势优先级。
-                    TopicRow(
-                        topic: t,
-                        detailDestination: AnyView(
-                            TopicDetailView(topicId: t.id, onOpenWeb: { tid in
-                                onOpen(TopicAPI.detailURL(topicId: tid))
-                            }, onOpenUser: { uid in
-                                if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
-                            })
-                        ),
-                        onTapUser: { uid in
+                    // 回到最朴素、最稳的结构：NavigationLink 包整张卡片（3.6.0 之前一直能用）。
+                    // 作者主页改成长按菜单，不再和卡片点击抢事件。
+                    NavigationLink {
+                        TopicDetailView(topicId: t.id, onOpenWeb: { tid in
+                            onOpen(TopicAPI.detailURL(topicId: tid))
+                        }, onOpenUser: { uid in
                             if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
-                        }
-                    )
+                        })
+                    } label: {
+                        TopicRow(topic: t, onTapUser: { uid in
+                            if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
+                        })
+                    }
+                    .buttonStyle(PressableRowStyle())
                     .listRowSeparator(.hidden)
+                    .contextMenu {
+                        if let uid = t.user?.id {
+                            Button {
+                                if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
+                            } label: {
+                                Label("查看作者主页", systemImage: "person.crop.circle")
+                            }
+                        }
+                        Button {
+                            onOpen(TopicAPI.detailURL(topicId: t.id))
+                        } label: {
+                            Label("用网页打开", systemImage: "safari")
+                        }
+                    }
                     .onAppear {
                         if t.id == store.topics.last?.id {
                             Task { await store.loadMore() }

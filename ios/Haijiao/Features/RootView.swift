@@ -28,6 +28,8 @@ struct RootView: View {
             if mode == "native" {
                 NativeHomeView(
                     onOpen: { url in
+                        // 用 fullScreenCover + 已经验证能正常显示的 WebHomeView，
+                        // 不再用自写的简化 WebSheet（那个在 sheet 里布局成 0 高 → 白屏）。
                         sheetTarget = WebTarget(url: url ?? HJWeb.home)
                     },
                     onSwitchToWeb: {
@@ -35,8 +37,11 @@ struct RootView: View {
                         mode = "web"
                     }
                 )
-                .sheet(item: $sheetTarget) { t in
-                    WebSheet(url: t.url) { sheetTarget = nil }
+                .fullScreenCover(item: $sheetTarget) { t in
+                    WebHomeView(
+                        initialURL: t.url,
+                        onSwitchToNative: { sheetTarget = nil }
+                    )
                 }
             } else {
                 WebHomeView(
