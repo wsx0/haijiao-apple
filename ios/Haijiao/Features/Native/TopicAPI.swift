@@ -76,7 +76,10 @@ enum TopicAPI {
         req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
         req.setValue("211112203214", forHTTPHeaderField: "mver")
         req.setValue("null", forHTTPHeaderField: "x-user-id")
-        req.setValue("null", forHTTPHeaderField: "x-user-token")`n        if let c = cookie, !c.isEmpty {`n            req.setValue(c, forHTTPHeaderField: "Cookie")`n        }
+        req.setValue("null", forHTTPHeaderField: "x-user-token")
+        if let c = cookie, !c.isEmpty {
+            req.setValue(c, forHTTPHeaderField: "Cookie")
+        }
 
         let (data, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
