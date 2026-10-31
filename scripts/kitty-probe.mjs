@@ -37,7 +37,9 @@ async function main() {
   }
 
   // 2) 猜几个脚本地址
+  // 已经从页面 HTML 里挖到的真实地址
   const cands = [
+    'https://file.kittymao.xyz/file/hj.user.js',
     ...links.filter(l => /\.user\.js/.test(l.href)).map(l => l.href),
     'https://www.kittymao.xyz/script/18.user.js',
     'https://www.kittymao.xyz/scripts/18.user.js',
