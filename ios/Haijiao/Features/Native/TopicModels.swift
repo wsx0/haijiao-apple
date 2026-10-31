@@ -38,6 +38,15 @@ struct TopicTag {
     let tagName: String?
 }
 
+/// 附件（列表里的缩略图、详情页里的图片/视频都靠它）
+struct TopicAttachment {
+    let id: Int?
+    let remoteUrl: String?
+    let coverUrl: String?
+    let category: String?
+    let status: Int?
+}
+
 struct Topic: Identifiable {
     let topicId: Int?
     let title: String?
