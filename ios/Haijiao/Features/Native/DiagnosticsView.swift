@@ -17,6 +17,11 @@
 
 import SwiftUI
 
+// 诊断用的真实样本地址（都来自之前 CI 抓到的真实数据）
+private let diagSampleImage = URL(string: "https://pic.hj260302818.top/hjstore/images/20261023/e85129820d8b0d42cfad2f2a1d14aae9.jpg.txt")!
+private let diagSampleM3U8 = URL(string: "https://ts10.hj260302818.top/hjstore/video/20261023/105f7d1d12d6c3854b57940db853d59b/565690_i_preview.m3u8")!
+private let diagSampleKey = URL(string: "https://ts10.hj260302818.top/hjstore/video/20261023/105f7d1d12d6c3854b57940db853d59b/enc_14330811.key")!
+
 @MainActor
 final class DiagModel: ObservableObject {
     struct Row: Identifiable {
@@ -37,9 +42,7 @@ final class DiagModel: ObservableObject {
         .init(name: "⑦ 隐藏 WebView 就绪"),
     ]
 
-    private let sampleImage = URL(string: "https://pic.hj260302818.top/hjstore/images/20261023/e85129820d8b0d42cfad2f2a1d14aae9.jpg.txt")!
-    private let sampleM3U8 = URL(string: "https://ts10.hj260302818.top/hjstore/video/20261023/105f7d1d12d6c3854b57940db853d59b/565690_i_preview.m3u8")!
-    private let sampleKey = URL(string: "https://ts10.hj260302818.top/hjstore/video/20261023/105f7d1d12d6c3854b57940db853d59b/enc_14330811.key")!
+
 
     func runAll() async {
         // ① API
@@ -49,28 +52,28 @@ final class DiagModel: ObservableObject {
             ], expectText: true)
         }
         // ② 图片：原生
-        await test(1) { try await self.probe(sampleImage.absoluteString, headers: [
+        await test(1) { try await self.probe(diagSampleImage.absoluteString, headers: [
             "User-Agent": TopicAPI.ua, "Referer": TopicAPI.base + "/home",
         ], expectText: true) }
         // ③ 图片：WebKit
         await test(2) {
-            let t = try await WebBridge.shared.fetchRaw(path: sampleImage.absoluteString)
+            let t = try await WebBridge.shared.fetchRaw(path: diagSampleImage.absoluteString)
             return t.isEmpty ? (false, "空响应", 0) : (true, "\(t.count) 字符", 0)
         }
         // ④ m3u8
-        await test(3) { try await self.probe(sampleM3U8.absoluteString, headers: [
+        await test(3) { try await self.probe(diagSampleM3U8.absoluteString, headers: [
             "User-Agent": TopicAPI.ua, "Referer": TopicAPI.base + "/",
         ], expectText: true) }
         // ⑤ key
-        await test(4) { try await self.probe(sampleKey.absoluteString, headers: [
+        await test(4) { try await self.probe(diagSampleKey.absoluteString, headers: [
             "User-Agent": TopicAPI.ua, "Referer": TopicAPI.base + "/",
         ], expectText: false) }
         // ⑥ ts 分片：从 m3u8 里取第一个片段名
         await test(5) {
-            let text = try await WebBridge.shared.fetchRaw(path: sampleM3U8.absoluteString)
+            let text = try await WebBridge.shared.fetchRaw(path: diagSampleM3U8.absoluteString)
             let seg = text.split(separator: "\n").map(String.init).first { $0.hasSuffix(".ts") }
             guard let seg, !seg.isEmpty else { return (false, "m3u8 里没解析出分片", 0) }
-            let base = sampleM3U8.absoluteString.replacingOccurrences(of: "565690_i_preview.m3u8", with: "")
+            let base = diagSampleM3U8.absoluteString.replacingOccurrences(of: "565690_i_preview.m3u8", with: "")
             return try await self.probe(base + seg, headers: ["User-Agent": TopicAPI.ua], expectText: false)
         }
         // ⑦ WebView 是否就绪
