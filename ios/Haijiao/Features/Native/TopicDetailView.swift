@@ -405,7 +405,7 @@ struct TopicDetailView: View {
                 do {
                     let u = try await KittyClient.decodeStream(topicId: tid, attachmentId: aid, passcode: k)
                     await MainActor.run {
-                        subanBusy = false; subanURL = u; playFromSuban = true; showPlayer = true
+                        subanBusy = false; subanURL = u.unwrappedStream; playFromSuban = true; showPlayer = true
                     }
                     return
                 } catch { lastError = "kitty：" + error.localizedDescription }
@@ -413,7 +413,7 @@ struct TopicDetailView: View {
             do {
                 let u = try await SubanClient.decodeStream(topicId: tid, attachmentId: aid, token: subanToken)
                 await MainActor.run {
-                    subanBusy = false; subanURL = u; playFromSuban = true; showPlayer = true
+                    subanBusy = false; subanURL = u.unwrappedStream; playFromSuban = true; showPlayer = true
                 }
                 return
             } catch {

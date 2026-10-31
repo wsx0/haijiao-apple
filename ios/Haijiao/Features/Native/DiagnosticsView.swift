@@ -32,6 +32,13 @@ final class DiagModel: ObservableObject {
         var ms: Int = 0
     }
 
+    /// 装的是哪一版（防止把旧包当新包测）
+    let appVer: String = {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "v\(v) (\(b))"
+    }()
+
     @Published var rows: [Row] = [
         .init(name: "① API haijiao.com"),
         .init(name: "② 图片 原生 URLSession"),
@@ -158,6 +165,9 @@ struct DiagnosticsView: View {
                         }
                         .padding(.vertical, 2)
                     }
+                } header: {
+                    Text(model.appVer)
+                        .font(.system(size: 12, design: .monospaced))
                 } footer: {
                     Text("全部绿 = 网络没问题，问题在播放/解码；某一项红 = 那一步断在这里。截图发我即可。")
                         .font(.system(size: 11))

@@ -25,13 +25,16 @@ struct VideoPlayerView: View {
     /// 诊断页已证明 m3u8/key/ts 全部 200，所以先走 AVPlayer；播不了再一键切 WebKit。
     @State private var useWebKit = false
 
+    /// 防御：不管上层给的是什么形态，进播放器前再拆一次包装地址
+    private var effectiveURL: URL { url.unwrappedStream }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
             if useWebKit {
                 // 原生栈拿不到媒体 CDN 时，用 WebKit 播（它走自己的网络栈）
-                WebVideoPlayer(url: url)
+                WebVideoPlayer(url: effectiveURL)
                     .ignoresSafeArea()
             } else if let player {
                 VideoPlayer(player: player)
@@ -43,7 +46,7 @@ struct VideoPlayerView: View {
                         .font(.system(size: 34))
                     Text("原生播放失败")
                         .font(.system(size: 14))
-                    Text(url.absoluteString)
+                    Text(effectiveURL.absoluteString)
                         .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.45))
                         .multilineTextAlignment(.center)
