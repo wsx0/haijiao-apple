@@ -37,6 +37,7 @@ on:
       - 'scripts/video4-probe.mjs'
       - 'scripts/sf-probe.mjs'
       - 'scripts/tabs-probe.mjs'
+      - 'scripts/home-probe.mjs'
       - 'scripts/sf-list-probe.mjs'
       - 'scripts/kitty-probe.mjs'
       - 'scripts/kitty-verify.mjs'
@@ -146,6 +147,9 @@ jobs:
       - name: Tab 与搜索接口侦察
         run: node scripts/tabs-probe.mjs
 
+      - name: 原站首页结构侦察
+        run: node scripts/home-probe.mjs
+
       - name: Kitty猫脚本分析
         run: node scripts/kitty-probe.mjs
 
@@ -197,6 +201,7 @@ jobs:
             out26/
             out27/
             out30/
+            out31/
             out28/
             out29/
           if-no-files-found: warn
