@@ -41,7 +41,7 @@ struct RemoteImage: View {
                     .aspectRatio(contentMode: contentMode)
             } else {
                 ZStack {
-                    Color.gray.opacity(0.15)
+                    Theme.placeholder
                     if failed { Image(systemName: "photo").foregroundStyle(.secondary) }
                 }
             }
@@ -246,9 +246,9 @@ struct TopicRow: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 6))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(Theme.stroke, lineWidth: 0.5)
         )
     }
@@ -326,7 +326,7 @@ struct NativeHomeView: View {
                 if let s = ImageStats.shared.summary {
                     Text(s)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color.orange)
                         .listRowSeparator(.hidden)
                 }
 
@@ -395,13 +395,13 @@ struct NativeHomeView: View {
             }
             .sheet(isPresented: $showDiag) {
                 DiagnosticsView()
-                    .preferredColorScheme(.dark)
+                    .preferredColorScheme(.light)
             }
             .task { await store.loadFirstIfNeeded() }
             .refreshable { await store.reload() }
         }
         .navigationViewStyle(.stack)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 }
 

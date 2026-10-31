@@ -307,7 +307,7 @@ struct TopicDetailView: View {
         .sheet(isPresented: $showPlayer) {
             if let d = store.detail, let vurl = (playFromSuban ? subanURL : d.videoURL) {
                 VideoPlayerView(url: vurl, title: d.title ?? "", isPreview: !playFromSuban && d.videoIsPreview)
-                    .preferredColorScheme(.dark)
+                    .preferredColorScheme(.light)
             }
         }
         .alert("填解析口令", isPresented: $showTokenPrompt) {
@@ -389,7 +389,7 @@ struct TopicDetailView: View {
                         .clipped()
                         .cornerRadius(8)
                 } else {
-                    RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.2))
+                    RoundedRectangle(cornerRadius: 8).fill(Theme.placeholder)
                         .frame(height: 190)
                 }
                 Image(systemName: "play.circle.fill")
@@ -507,7 +507,7 @@ struct TopicDetailView: View {
                 Spacer(minLength: 0)
             }
             .padding(8)
-            .background(Color.gray.opacity(0.12))
+            .background(Theme.placeholder)
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
