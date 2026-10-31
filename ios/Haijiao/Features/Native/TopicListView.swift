@@ -41,6 +41,7 @@ struct RemoteImage: View {
     @MainActor
     private func load() async {
         guard let url else { return }
+        failed = false
         let key = url.absoluteString
         if let cached = NativeImageCache.shared.get(key) {
             image = cached
@@ -73,6 +74,11 @@ final class TopicStore: ObservableObject {
     func loadFirstIfNeeded() async {
         if started { return }
         started = true
+        // 延迟 2 秒预热隐藏 WebView：先让列表数据抢到带宽，再后台把图片通道准备好
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await WebBridge.shared.prepare(timeout: 15)
+        }
         await reload()
     }
 

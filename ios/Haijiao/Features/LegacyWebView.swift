@@ -147,7 +147,8 @@ struct LegacyWebView: UIViewControllerRepresentable {
 
             coordinator.attach(web: w, container: self)
             coordinator.observe(w)
-            coordinator.startDiag()
+            // 诊断采集默认关闭：问题已定位，20 秒 × 每 0.5s 的 JS 调用没有意义
+            // coordinator.startDiag()
 
             // 立刻开始导航，**不等规则**。
             // 规矩是：挡横幅/弹窗靠的是 documentStart 就注入的 CSS 与 siteJS，

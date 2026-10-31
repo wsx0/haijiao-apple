@@ -109,12 +109,36 @@ enum TopicAPI {
 
     // MARK: - 图片
 
+/// 图片请求并发闸门（同时最多 6 个）
+@MainActor
+final class ImageGate {
+    static let shared = ImageGate()
+    private var inFlight = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private let limit = 6
+
+    func acquire() async {
+        if inFlight < limit { inFlight += 1; return }
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in waiters.append(c) }
+        inFlight += 1
+    }
+
+    func release() {
+        inFlight -= 1
+        if let c = waiters.first { waiters.removeFirst(); c.resume() }
+    }
+}
+
     /// 取一张列表缩略图。
     /// 图片在独立域名（pic.*.top）上，同样有防盗链/风控：
     ///   ① URLSession + 站点 Cookie + Referer（快）
     ///   ② 失败就回退到页面内 fetch（base64），和网页版走同一条路（慢但一定能成）
     @MainActor
     static func fetchImage(_ url: URL) async -> UIImage? {
+        // 一屏 40 条 × 3 图 = 120 个请求，不限并发会把网络/WebContent 打满
+        await ImageGate.shared.acquire()
+        defer { ImageGate.shared.release() }
+
         if let img = await directImage(url) { return img }
         if let b64 = try? await WebBridge.shared.fetchBase64Image(url.absoluteString),
            let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters),
@@ -124,18 +148,23 @@ enum TopicAPI {
         return nil
     }
 
+    /// 防盗链有的只认具体页面，所以逐个 Referer 试；都不行才交给网页通道。
     static func directImage(_ url: URL) async -> UIImage? {
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 15
-        req.setValue(ua, forHTTPHeaderField: "User-Agent")
-        req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
-        req.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
-        if let cookie = await WebBridge.shared.cookieHeader(), !cookie.isEmpty {
-            req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        let referers: [String?] = ["\(base)/home", "\(base)/", nil]
+        let cookie = await WebBridge.shared.cookieHeader()
+        for referer in referers {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 12
+            req.setValue(ua, forHTTPHeaderField: "User-Agent")
+            req.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+            req.setValue("zh-CN,zh;q=0.9", forHTTPHeaderField: "Accept-Language")
+            if let r = referer { req.setValue(r, forHTTPHeaderField: "Referer") }
+            if let c = cookie, !c.isEmpty { req.setValue(c, forHTTPHeaderField: "Cookie") }
+            guard let (data, resp) = try? await URLSession.shared.data(for: req) else { continue }
+            if let http = resp as? HTTPURLResponse, http.statusCode >= 400 { continue }
+            if let img = UIImage(data: data) { return img }
         }
-        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
-        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 { return nil }
-        return UIImage(data: data)
+        return nil
     }
 
     /// 详情页（SPA 路由 post/details），点条目时交给内置 WebView 打开
