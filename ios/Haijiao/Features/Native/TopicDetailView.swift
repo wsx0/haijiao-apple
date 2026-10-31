@@ -293,6 +293,7 @@ struct TopicDetailView: View {
             }
             .padding(16)
         }
+        .background(Theme.canvas)
         .navigationTitle("详情")
         .sheet(isPresented: $showPlayer) {
             if let d = store.detail, let vurl = (playFromSuban ? subanURL : d.videoURL) {
@@ -325,9 +326,24 @@ struct TopicDetailView: View {
             Text(d.title ?? "（无标题）")
                 .font(.system(size: 20, weight: .bold))
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 12) {
-                Text(d.user?.nickname ?? "")
-                if let n = d.node?.name, !n.isEmpty { Text(n) }
+            HStack(spacing: 8) {
+                if let head = TopicAPI.imageURL(d.user?.avatar) {
+                    RemoteImage(url: head, maxSide: 200)
+                        .frame(width: 28, height: 28)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(Theme.subtext)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(d.user?.nickname ?? "匿名")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.text)
+                    if let n = d.node?.name, !n.isEmpty {
+                        Text(n).font(.system(size: 11)).foregroundStyle(Theme.subtext)
+                    }
+                }
                 Spacer()
                 if let v = d.viewCountStr { Label(v, systemImage: "eye") }
                 if let c = d.commentCountStr { Label(c, systemImage: "bubble.left") }

@@ -73,8 +73,9 @@ struct VideoPlayerView: View {
                 ProgressView().tint(.white)
             }
 
+            // 覆盖层只放左上角关闭 + 顶部信息，**不压底部**（系统进度条在底部）
             VStack {
-                HStack {
+                HStack(spacing: 8) {
                     Button {
                         player?.pause()
                         dismiss()
@@ -87,25 +88,18 @@ struct VideoPlayerView: View {
                     Spacer()
                     if isPreview {
                         Text("预览片段")
-                            .font(.system(size: 12, weight: .semibold))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
                             .background(Color.orange.opacity(0.85), in: Capsule())
                             .foregroundStyle(.white)
                     }
                 }
                 .padding(.horizontal, 14)
-                .padding(.top, 8)
+                .padding(.top, 6)
                 Spacer()
-                if !title.isEmpty {
-                    Text(title)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.7))
-                        .lineLimit(1)
-                        .padding(.horizontal, 14)
-                        .padding(.bottom, 10)
-                }
             }
+            .allowsHitTesting(true)
         }
         .onAppear { if !useWebKit { prepare() } }
         .onDisappear { player?.pause(); player = nil }

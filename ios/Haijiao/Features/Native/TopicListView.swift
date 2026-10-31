@@ -154,19 +154,47 @@ struct TopicRow: View {
     let topic: Topic
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
+            // 标题
             Text(topic.title?.isEmpty == false ? (topic.title ?? "") : (topic.liteContent ?? "（无标题）"))
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .lineLimit(3)
-                .foregroundStyle(.primary)
+                .foregroundStyle(Theme.text)
+                .fixedSize(horizontal: false, vertical: true)
 
-            // 图片解码算法已经搞出来了（SiteImage），恢复三图预览
+            // 作者行：头像 + 昵称 + 付费/分类徽标
+            HStack(spacing: 6) {
+                if let head = TopicAPI.imageURL(topic.user?.avatar) {
+                    RemoteImage(url: head, maxSide: 120)
+                        .frame(width: 18, height: 18)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Theme.subtext)
+                }
+                Text(topic.user?.nickname ?? "匿名")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.subtext)
+                    .lineLimit(1)
+                if let badge = badgeText {
+                    Text(badge)
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Theme.chip, in: RoundedRectangle(cornerRadius: 3))
+                        .foregroundStyle(Theme.accent)
+                }
+                Spacer(minLength: 0)
+            }
+
+            // 图片 / 摘要
             let imgs = topic.displayImages
             if !imgs.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(Array(imgs.enumerated()), id: \.offset) { _, item in
-                        RemoteImage(attID: item.id, url: item.url)
-                            .frame(height: 104)
+                        RemoteImage(attID: item.id, url: item.url, maxSide: 600)
+                            .frame(height: 108)
                             .frame(maxWidth: .infinity)
                             .clipped()
                             .cornerRadius(6)
@@ -175,31 +203,42 @@ struct TopicRow: View {
             } else if let lite = topic.liteContent, !lite.isEmpty {
                 Text(lite)
                     .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.subtext)
                     .lineLimit(2)
             }
 
-            HStack(spacing: 12) {
-                Text(topic.user?.nickname ?? "")
-                    .lineLimit(1)
-                Spacer(minLength: 8)
+            // 统计 + 标签
+            HStack(spacing: 10) {
                 Label("\(topic.commentCount ?? 0)", systemImage: "bubble.left")
                 Label("\(topic.viewCount ?? 0)", systemImage: "eye")
                 if let n = topic.node?.name, !n.isEmpty {
                     Text(n)
                 }
+                Spacer(minLength: 0)
+                if let first = topic.tags.first?.tagName, !first.isEmpty {
+                    Text("#" + first)
+                        .lineLimit(1)
+                }
             }
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-
-            if let first = topic.tags.first?.tagName, !first.isEmpty {
-                Text(topic.tags.compactMap { $0.tagName }.prefix(3).joined(separator: " · "))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            .font(.system(size: 11))
+            .foregroundStyle(Theme.subtext)
         }
-        .padding(.vertical, 6)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Theme.stroke, lineWidth: 0.5)
+        )
+    }
+
+    /// 角标（Topic 模型里没有 money_type，用 hasVideo + 标题关键词近似网页版角标）
+    private var badgeText: String? {
+        if topic.hasVideo == true { return "视频" }
+        let t = topic.title ?? ""
+        if t.contains("原创") { return "原创" }
+        if t.contains("收费") { return "收费" }
+        return nil
     }
 }
 
@@ -273,6 +312,11 @@ struct NativeHomeView: View {
                 }
             }
             .listStyle(.plain)
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
+            .scrollContentBackground(.hidden)
+            .background(Theme.canvas)
             .navigationTitle(store.topics.isEmpty ? "海角" : "海角 · \(store.topics.count) 条")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
