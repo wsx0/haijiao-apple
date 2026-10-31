@@ -170,9 +170,11 @@ final class ImageGate {
     /// 一屏 120 张图，全在主线程做会把滚动卡住。
     @MainActor
     static func fetchImage(_ url: URL, maxSide: CGFloat = 300) async -> UIImage? {
-        await ImageGate.shared.acquire()
-        defer { ImageGate.shared.release() }
-
+        // 不再用自建闸门：原来那个用 withCheckedContinuation 排队，
+        // 而 SwiftUI 的 .task 在单元格滚出屏幕时会**取消**任务 ——
+        // continuation 永远不会被 resume，inFlight 也就永远不归零，
+        // 排队的图全部卡死。这就是「只加载一部分」的根因。
+        // URLSession 自己就有每主机连接上限（约 6），限流交给它更安全。
         guard let raw = await fetchImageText(url) else {
             ImageStats.shared.record(failure: "下载失败(直连+网页) \(url.host ?? "?")")
             return nil
