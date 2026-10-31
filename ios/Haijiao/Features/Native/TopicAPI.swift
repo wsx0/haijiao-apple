@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import UIKit
 
 enum TopicAPI {
 
@@ -104,6 +105,37 @@ enum TopicAPI {
             throw APIError.payload("两层 base64 解码失败")
         }
         return try parsePage(json)
+    }
+
+    // MARK: - 图片
+
+    /// 取一张列表缩略图。
+    /// 图片在独立域名（pic.*.top）上，同样有防盗链/风控：
+    ///   ① URLSession + 站点 Cookie + Referer（快）
+    ///   ② 失败就回退到页面内 fetch（base64），和网页版走同一条路（慢但一定能成）
+    @MainActor
+    static func fetchImage(_ url: URL) async -> UIImage? {
+        if let img = await directImage(url) { return img }
+        if let b64 = try? await WebBridge.shared.fetchBase64Image(url.absoluteString),
+           let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters),
+           let img = UIImage(data: data) {
+            return img
+        }
+        return nil
+    }
+
+    static func directImage(_ url: URL) async -> UIImage? {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 15
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
+        req.setValue("image/avif,image/webp,image/apng,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        if let cookie = await WebBridge.shared.cookieHeader(), !cookie.isEmpty {
+            req.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+        guard let (data, resp) = try? await URLSession.shared.data(for: req) else { return nil }
+        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 { return nil }
+        return UIImage(data: data)
     }
 
     /// 详情页（SPA 路由 post/details），点条目时交给内置 WebView 打开

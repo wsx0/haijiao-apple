@@ -66,6 +66,43 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// 用页面内 fetch 取一张图片，返回**纯 base64**（不含 data: 前缀）。
+    /// 图片域名（pic.*.top）也有防盗链/风控，URLSession 拿不到时就走这条路。
+    func fetchBase64Image(_ urlString: String) async throws -> String {
+        await prepare(timeout: 8)
+        guard let w = web else { throw TopicAPI.APIError.envelope("WebView 不可用") }
+        let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let js = """
+        (function(){
+          window.__hj_img = window.__hj_img || {};
+          window.__hj_img['$TOKEN'] = '';
+          fetch('$URL').then(function(r){ return r.blob(); })
+            .then(function(b){
+              var fr = new FileReader();
+              fr.onload = function(){
+                var s = String(fr.result);
+                var i = s.indexOf(',');
+                window.__hj_img['$TOKEN'] = '__OK__' + (i >= 0 ? s.slice(i + 1) : s);
+              };
+              fr.readAsDataURL(b);
+            })
+            .catch(function(e){ window.__hj_img['$TOKEN'] = '__E__' + (e && e.message ? e.message : String(e)); });
+          return true;
+        })()
+        """
+            .replacingOccurrences(of: "$TOKEN", with: token)
+            .replacingOccurrences(of: "$URL", with: urlString)
+        _ = try? await w.evaluateJavaScript(js)
+        for _ in 0..<80 {                                  // 最多 8 秒
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let v = try? await w.evaluateJavaScript("(window.__hj_img && window.__hj_img['\(token)']) || ''")
+            guard let s = v as? String, !s.isEmpty else { continue }
+            if s.hasPrefix("__OK__") { return String(s.dropFirst(6)) }
+            throw TopicAPI.APIError.envelope("图片 fetch 失败：" + String(s.prefix(60)))
+        }
+        throw TopicAPI.APIError.envelope("图片通道超时")
+    }
+
     /// 把 WebView 已拿到的站点 Cookie 导出成 Cookie 头。
     /// 站点前面挂了 WAF（首次访问下发 __cf_bm 一类的 cookie），
     /// URLSession 与 WKWebView 不共享 cookie 池 —— 不带这串就直接被拦成 HTML。

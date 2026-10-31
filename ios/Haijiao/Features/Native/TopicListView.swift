@@ -46,21 +46,13 @@ struct RemoteImage: View {
             image = cached
             return
         }
-        do {
-            var req = URLRequest(url: url)
-            req.timeoutInterval = 20
-            req.setValue(TopicAPI.ua, forHTTPHeaderField: "User-Agent")
-            req.setValue("\(TopicAPI.base)/", forHTTPHeaderField: "Referer")
-            let (data, _) = try await URLSession.shared.data(for: req)
-            guard let full = UIImage(data: data) else {
-                failed = true
-                return
-            }
+        // 直连（带 Cookie/Referer）失败会内部回退到页面内 fetch，两条都不成才算失败
+        if let full = await TopicAPI.fetchImage(url) {
             // 下采样到 300pt：列表格子只有 ~100pt，原图（gif/jpeg 常见 1000px+）白占内存
             let thumb = await full.byPreparingThumbnail(ofSize: CGSize(width: 300, height: 300)) ?? full
             NativeImageCache.shared.set(key, thumb)
             image = thumb
-        } catch {
+        } else {
             failed = true
         }
     }
