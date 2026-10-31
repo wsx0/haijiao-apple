@@ -25,23 +25,41 @@ const decodeLayers = payload => {
   return null;
 };
 
-async function getJSON(pathname) {
-  const r = await fetch(BASE + pathname, {
-    headers: { 'User-Agent': UA, 'Accept': 'application/json, text/plain, */*',
-               'Referer': `${BASE}/home`, 'mver': '211112203214',
-               'x-user-id': 'null', 'x-user-token': 'null' },
-  });
-  const env = JSON.parse(await r.text());
-  return decodeLayers(env.data);
+// 在浏览器上下文里 fetch（同源、带站点 cookie），比 Node 直连稳
+async function getJSONViaPage(page, pathname) {
+  const raw = await page.evaluate(async (p) => {
+    const r = await fetch(p, { headers: { 'accept': 'application/json, text/plain, */*' } });
+    const t = await r.text();
+    return { status: r.status, len: t.length, head: t.slice(0, 120), body: t };
+  }, pathname);
+  console.log(`  GET ${pathname} -> ${raw.status} ${raw.len}B`);
+  if (raw.status !== 200) { console.log('    响应:', raw.head); return null; }
+  let env;
+  try { env = JSON.parse(raw.body); } catch (e) { console.log('    非 JSON:', raw.head); return null; }
+  const data = decodeLayers(env.data);
+  if (!data) console.log('    解码失败, data 前缀:', String(env.data).slice(0, 40));
+  return data;
 }
 
 async function main() {
   const out = { freeVideos: [], paidVideos: [], apiPaths: [], jsHints: [] };
 
+  // 浏览器先起来（后面还要抓 JS）
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
+  const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const jsBodies = [];
+  const page = await ctx.newPage();
+  page.on('response', async r => {
+    const u = r.url();
+    if (!/\.js(\?|$)/.test(u)) return;
+    try { jsBodies.push({ url: u.replace(BASE, ''), body: await r.text() }); } catch (e) {}
+  });
+  await page.goto(`${BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.waitForTimeout(4500);
+
   // 1) 扫几页列表，分别收集「免费视频帖」与「付费视频帖」
-  for (let page = 1; page <= 3; page++) {
-    let list;
-    try { list = await getJSON(`/api/topic/hot/topics?page=${page}`); } catch (e) { continue; }
+  for (let pg = 1; pg <= 3; pg++) {
+    const list = await getJSONViaPage(page, `/api/topic/hot/topics?page=${pg}`);
     for (const t of ((list && list.results) || [])) {
       const v = (t.attachments || []).find(a => (a.category || '').toLowerCase().includes('video') && a.remoteUrl);
       if (!v) continue;
@@ -93,18 +111,7 @@ async function main() {
     } catch (e) { console.log('详情失败', e.message); }
   }
 
-  // 3) 从 JS 里挖所有 /api/ 路径 + preview / 购买相关逻辑
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-  const ctx = await browser.newContext({ userAgent: UA, viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-  const jsBodies = [];
-  const page = await ctx.newPage();
-  page.on('response', async r => {
-    const u = r.url();
-    if (!/\.js(\?|$)/.test(u)) return;
-    try { jsBodies.push({ url: u.replace(BASE, ''), body: await r.text() }); } catch (e) {}
-  });
-  await page.goto(`${BASE}/home`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(5000);
+  // 3) JS 已在上面抓过，直接分析
 
   const apis = new Set();
   const hints = [];
