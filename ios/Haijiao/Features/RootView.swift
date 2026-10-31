@@ -18,20 +18,26 @@ struct RootView: View {
     /// 再也回不到默认路径（2.0.0~2.0.5 的修复就是这么没被验证到的）。
     @State private var mode: String = "native"
     @State private var webURL: URL = HJWeb.home
+    /// 「看详情/作者页」这类临时跳转用 sheet，**不再切换整个 App 的模式**。
+    /// 之前 onOpen 里直接 mode = "web"，导致点头像等操作会把 App 整个切到网页，
+    /// 用户体感是「时不时就跳进网页端」。
+    @State private var sheetTarget: WebTarget?
 
     var body: some View {
         ZStack {
             if mode == "native" {
                 NativeHomeView(
                     onOpen: { url in
-                        webURL = url ?? HJWeb.home
-                        mode = "web"
+                        sheetTarget = WebTarget(url: url ?? HJWeb.home)
                     },
                     onSwitchToWeb: {
                         webURL = HJWeb.home
                         mode = "web"
                     }
                 )
+                .sheet(item: $sheetTarget) { t in
+                    WebSheet(url: t.url) { sheetTarget = nil }
+                }
             } else {
                 WebHomeView(
                     initialURL: webURL,
@@ -42,6 +48,81 @@ struct RootView: View {
         // 原站是白底浅色主题，整个 App 强制浅色：
         // 否则用户系统是深色时，正文用的 .primary 会变成白字，压在白色背景上就"文字不见了"
         .preferredColorScheme(.light)
+    }
+}
+
+/// sheet 用的可识别目标
+struct WebTarget: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+/// 简易网页 sheet：带标题栏和关闭按钮，不接管整个 App
+struct WebSheet: View {
+    let url: URL
+    let onClose: () -> Void
+
+    @State private var progress: Double = 0
+    @State private var title = ""
+
+    var body: some View {
+        NavigationView {
+            ZStack(alignment: .top) {
+                HStackWeb(url: url, progress: $progress, title: $title)
+                if progress < 1.0 {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .tint(Theme.accent)
+                }
+            }
+            .navigationTitle(title.isEmpty ? "网页" : title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("关闭") { onClose() }
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+    }
+}
+
+/// WebSheet 内部的 WKWebView 包装
+private struct HStackWeb: UIViewRepresentable {
+    let url: URL
+    @Binding var progress: Double
+    @Binding var title: String
+
+    func makeUIView(context: Context) -> WKWebView {
+        let w = WKWebView()
+        w.navigationDelegate = context.coordinator
+        w.allowsBackForwardNavigationGestures = true
+        w.load(URLRequest(url: url))
+        return w
+    }
+
+    func updateUIView(_ w: WKWebView, context: Context) {}
+
+    func makeCoordinator() -> Coord { Coord(progress: $progress, title: $title) }
+
+    final class Coord: NSObject, WKNavigationDelegate {
+        let progress: Binding<Double>
+        let title: Binding<String>
+        private var obs: NSKeyValueObservation?
+
+        init(progress: Binding<Double>, title: Binding<String>) {
+            self.progress = progress
+            self.title = title
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            progress.wrappedValue = 1
+            title.wrappedValue = webView.title ?? ""
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            progress.wrappedValue = 0.1
+        }
     }
 }
 
