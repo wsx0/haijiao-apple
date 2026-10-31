@@ -65,7 +65,7 @@ enum TopicAPI {
     }
 
     /// 直连：URLSession 打接口
-    static func fetchTopicsDirect(page: Int) async throws -> TopicPage {
+    static func fetchTopicsDirect(page: Int, cookie: String?) async throws -> TopicPage {
         guard let url = URL(string: "\(base)/api/topic/hot/topics?page=\(page)") else {
             throw URLError(.badURL)
         }
@@ -76,7 +76,7 @@ enum TopicAPI {
         req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
         req.setValue("211112203214", forHTTPHeaderField: "mver")
         req.setValue("null", forHTTPHeaderField: "x-user-id")
-        req.setValue("null", forHTTPHeaderField: "x-user-token")
+        req.setValue("null", forHTTPHeaderField: "x-user-token")`n        if let c = cookie, !c.isEmpty {`n            req.setValue(c, forHTTPHeaderField: "Cookie")`n        }
 
         let (data, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
@@ -126,9 +126,12 @@ enum TopicAPI {
     /// 统一入口：先直连（快），失败自动切网页通道。
     /// 两条路的错误都会带上原始响应前缀，便于定位到底卡在哪一层。
     static func fetchTopics(page: Int) async throws -> TopicPage {
+        // 先让隐藏 WebView 打开过首页：一来拿站点 Cookie，二来保证网页通道随时可用
+        await WebBridge.shared.prepare()
+        let cookie = await WebBridge.shared.cookieHeader()
         var directError: Error?
         do {
-            return try await fetchTopicsDirect(page: page)
+            return try await fetchTopicsDirect(page: page, cookie: cookie)
         } catch {
             directError = error
         }

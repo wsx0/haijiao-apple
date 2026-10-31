@@ -66,6 +66,20 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// 把 WebView 已拿到的站点 Cookie 导出成 Cookie 头。
+    /// 站点前面挂了 WAF（首次访问下发 __cf_bm 一类的 cookie），
+    /// URLSession 与 WKWebView 不共享 cookie 池 —— 不带这串就直接被拦成 HTML。
+    func cookieHeader() async -> String? {
+        await withCheckedContinuation { (c: CheckedContinuation<String?, Never>) in
+            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { list in
+                let parts = list
+                    .filter { $0.domain.contains("haijiao") || $0.domain.contains("hj") }
+                    .map { "\($0.name)=\($0.value)" }
+                c.resume(returning: parts.isEmpty ? nil : parts.joined(separator: "; "))
+            }
+        }
+    }
+
     private func finish(_ ok: Bool) {
         loading = false
         if ok { ready = true }
