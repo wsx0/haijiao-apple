@@ -172,12 +172,22 @@ final class ImageGate {
     static func fetchImage(_ url: URL) async -> UIImage? {
         await ImageGate.shared.acquire()
         defer { ImageGate.shared.release() }
-        guard let raw = await fetchImageText(url) else { return nil }
-        return await Task.detached(priority: .utility) { () -> UIImage? in
+
+        guard let raw = await fetchImageText(url) else {
+            ImageStats.shared.record(failure: "下载失败 \(url.host ?? "?")")
+            return nil
+        }
+        let decoded = await Task.detached(priority: .utility) { () -> UIImage? in
             guard let full = SiteImage.image(from: raw) else { return nil }
             // 列表格子只有 ~100pt，先缩到 300pt 存缓存，省内存也省渲染
             return full.preparingThumbnail(of: CGSize(width: 300, height: 300)) ?? full
         }.value
+        if decoded == nil {
+            // 拿到了文本但解不出图：把开头一小段带出来，便于判断是格式变了还是请求被拦
+            let head = String(raw.prefix(24)).replacingOccurrences(of: "\n", with: " ")
+            ImageStats.shared.record(failure: "解码失败 head=\(head)")
+        }
+        return decoded
     }
 
     static func fetchImageText(_ url: URL) async -> String? {

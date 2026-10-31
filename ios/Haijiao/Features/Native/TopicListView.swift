@@ -54,6 +54,7 @@ struct RemoteImage: View {
         if let thumb = await TopicAPI.fetchImage(url) {
             NativeImageCache.shared.set(key, thumb)
             image = thumb
+            ImageStats.shared.recordOK()
         } else {
             failed = true
         }
@@ -194,6 +195,7 @@ struct NativeHomeView: View {
     let onSwitchToWeb: () -> Void
 
     @StateObject private var store = TopicStore()
+    @ObservedObject private var stats = ImageStats.shared
 
     var body: some View {
         NavigationView {
@@ -224,6 +226,13 @@ struct NativeHomeView: View {
 
                 if store.loading, !store.topics.isEmpty {
                     HStack { Spacer(); ProgressView(); Spacer() }
+                        .listRowSeparator(.hidden)
+                }
+
+                if let s = ImageStats.shared.summary {
+                    Text(s)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.orange)
                         .listRowSeparator(.hidden)
                 }
 
