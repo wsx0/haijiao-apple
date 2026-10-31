@@ -317,29 +317,34 @@ struct NativeHomeView: View {
     @State private var showDiag = false
     @State private var searchText = ""
     @State private var activeTab: Int = 0
+    /// 点卡片时用导航值打开详情（不再靠 NavigationLink 包住整张卡片，否则头像按钮会被吃掉）
+    @State private var detailTarget: Int?
 
     var body: some View {
         NavigationView {
             List {
                 ForEach(store.topics) { t in
-                    NavigationLink {
-                        TopicDetailView(topicId: t.id, onOpenWeb: { id in
-                            onOpen(TopicAPI.detailURL(topicId: id))
-                        }, onOpenUser: { uid in
-                            if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
-                        })
-                    } label: {
-                        TopicRow(topic: t, onTapUser: { uid in
-                            if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
-                        })
-                    }
-                    .buttonStyle(PressableRowStyle())
-                    .listRowSeparator(.hidden)
-                    .onAppear {
-                        if t.id == store.topics.last?.id {
-                            Task { await store.loadMore() }
+                    // 不用 NavigationLink 包卡片：List 里 NavigationLink 会吃掉内部的 Button，
+                    // 导致点作者头像没反应（一直进详情）。改成父级 onTapGesture + 子级 Button，
+                    // 这样头像的 Button 优先响应，其余区域走卡片点击。
+                    TopicRow(topic: t, onTapUser: { uid in
+                        if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
+                    })
+                        .contentShape(Rectangle())
+                        .onTapGesture { detailTarget = t.id }
+                        .listRowSeparator(.hidden)
+                        .onAppear {
+                            if t.id == store.topics.last?.id {
+                                Task { await store.loadMore() }
+                            }
                         }
-                    }
+                }
+                .navigationDestination(item: $detailTarget) { id in
+                    TopicDetailView(topicId: id, onOpenWeb: { tid in
+                        onOpen(TopicAPI.detailURL(topicId: tid))
+                    }, onOpenUser: { uid in
+                        if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
+                    })
                 }
 
                 // 首屏还没有内容时的占位
