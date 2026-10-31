@@ -86,6 +86,9 @@ final class TopicStore: ObservableObject {
     @Published private(set) var loading = false
     @Published private(set) var errorText: String?
 
+    /// 还有没有下一页
+    var hasMore: Bool { nextPage <= total }
+
     private var nextPage = 1
     private var total = 1000
     private var started = false
@@ -265,7 +268,7 @@ struct NativeHomeView: View {
                     } label: {
                         TopicRow(topic: t)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressableRowStyle())
                     .listRowSeparator(.hidden)
                     .onAppear {
                         if t.id == store.topics.last?.id {
@@ -282,7 +285,21 @@ struct NativeHomeView: View {
                 }
 
                 if store.loading, !store.topics.isEmpty {
-                    HStack { Spacer(); ProgressView(); Spacer() }
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.8)
+                        Text("加载更多…")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.subtext)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .listRowSeparator(.hidden)
+                } else if !store.topics.isEmpty, !store.hasMore {
+                    Text("— 已经到底了 —")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.subtext.opacity(0.7))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
                         .listRowSeparator(.hidden)
                 }
 
@@ -344,5 +361,15 @@ struct NativeHomeView: View {
         }
         .navigationViewStyle(.stack)
         .preferredColorScheme(.dark)
+    }
+}
+
+/// 卡片按下时轻微缩放 + 变暗，给出点击反馈（网页版点卡片有这个感觉）
+struct PressableRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .opacity(configuration.isPressed ? 0.86 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

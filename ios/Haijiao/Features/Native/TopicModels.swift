@@ -45,6 +45,8 @@ struct TopicAttachment {
     let coverUrl: String?
     let category: String?
     let status: Int?
+    /// 视频时长（秒），列表/详情角标用
+    let videoTimeLength: Int?
 }
 
 struct Topic: Identifiable {

@@ -70,7 +70,8 @@ extension TopicDetail {
                     remoteUrl: JSON.string(a["remoteUrl"]),
                     coverUrl: JSON.string(a["coverUrl"]),
                     category: JSON.string(a["category"]),
-                    status: JSON.int(a["status"])))
+                    status: JSON.int(a["status"]),
+                    videoTimeLength: JSON.int(a["video_time_length"])))
             }
         }
         attachments = atts
@@ -231,6 +232,7 @@ struct TopicDetailView: View {
     @State private var showTokenPrompt = false
     @State private var tokenInput: String = UserDefaults.standard.string(forKey: "suban.token") ?? ""
     @State private var playFromSuban = false
+    @State private var preview: ImagePreview?
 
     var body: some View {
         ScrollView {
@@ -260,12 +262,16 @@ struct TopicDetailView: View {
                                 .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         case .image(let u):
-                            // 关键：不要固定高度 + clipped。
-                            // 竖图放进 390×260 的框里会被 scaledToFill 放大后裁掉上下，
-                            // 看起来就是「糊 + 只显示一部分」。这里按原始比例完整显示。
-                            RemoteImage(url: u, maxSide: 1400, contentMode: .fit)
-                                .frame(maxWidth: .infinity)
-                                .cornerRadius(8)
+                            // 按原始比例完整显示（固定高度 + clipped 会把竖图裁成一条）。
+                            // 点开可全屏缩放。
+                            Button {
+                                preview = ImagePreview(url: u, title: store.detail?.title)
+                            } label: {
+                                RemoteImage(url: u, maxSide: 1400, contentMode: .fit)
+                                    .frame(maxWidth: .infinity)
+                                    .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
                         case .door(let door):
                             doorCard(door, onOpenWeb: onOpenWeb)
                         }
@@ -294,6 +300,9 @@ struct TopicDetailView: View {
             .padding(16)
         }
         .background(Theme.canvas)
+        .fullScreenCover(item: $preview) { p in
+            ImageViewer(url: p.url, title: p.title)
+        }
         .navigationTitle("详情")
         .sheet(isPresented: $showPlayer) {
             if let d = store.detail, let vurl = (playFromSuban ? subanURL : d.videoURL) {
@@ -357,6 +366,12 @@ struct TopicDetailView: View {
         }
     }
 
+    private func fmtDuration(_ s: Int) -> String {
+        let m = s / 60, sec = s % 60
+        if m >= 60 { return String(format: "%d:%02d:%02d", m / 60, m % 60, sec) }
+        return String(format: "%d:%02d", m, sec)
+    }
+
     private func videoEntry(url: URL, isPreview: Bool, cover: String?) -> some View {
         Button {
             if isPreview {
@@ -384,6 +399,15 @@ struct TopicDetailView: View {
                 VStack {
                     Spacer()
                     HStack {
+                        if let len = store.detail.flatMap({ d in
+                            d.attachments.first { ($0.category ?? "").lowercased().contains("video") }?.videoTimeLength
+                        }), len > 0 {
+                            Text(fmtDuration(len))
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 3))
+                                .foregroundStyle(.white)
+                        }
                         Text(isPreview ? "点击播放（预览片段）" : "点击播放")
                             .font(.system(size: 12, weight: .semibold))
                             .padding(.horizontal, 8).padding(.vertical, 3)
