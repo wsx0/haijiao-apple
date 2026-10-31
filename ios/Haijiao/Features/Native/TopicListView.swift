@@ -49,19 +49,9 @@ struct RemoteImage: View {
             image = cached
             return
         }
-        // 最优路径：页面已经把这层编码解开了，按 attachment id 直接取
-        if let b64 = WebBridge.shared.cachedImage(attID),
-           let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters),
-           let img = UIImage(data: data) {
-            let thumb = await img.byPreparingThumbnail(ofSize: CGSize(width: 300, height: 300)) ?? img
-            NativeImageCache.shared.set(key, thumb)
-            image = thumb
-            return
-        }
-        // 直连（带 Cookie/Referer）失败会内部回退到页面内 fetch，两条都不成才算失败
-        if let full = await TopicAPI.fetchImage(url) {
-            // 下采样到 300pt：列表格子只有 ~100pt，原图（gif/jpeg 常见 1000px+）白占内存
-            let thumb = await full.byPreparingThumbnail(ofSize: CGSize(width: 300, height: 300)) ?? full
+
+        // fetchImage 内部已经在后台完成解码 + 下采样，这里直接落缓存
+        if let thumb = await TopicAPI.fetchImage(url) {
             NativeImageCache.shared.set(key, thumb)
             image = thumb
         } else {

@@ -164,14 +164,20 @@ final class ImageGate {
     ///   ② 失败就回退到页面内 fetch（base64），和网页版走同一条路（慢但一定能成）
 
 
-    /// 拿图片：下载 .txt 原文 → 用站点那套打乱字母表的 base64 解 → UIImage。
-    /// 不再需要网页通道、也不需要 Cookie（实测 8 种头组合都是 200）。
+    /// 拿图片：下载 .txt 原文 → 用站点那套打乱字母表的 base64 解 → 下采样 → UIImage。
+    ///
+    /// 解码（30KB 文本 → 字节 → base64 → UIImage）必须放到后台：
+    /// 一屏 120 张图，全在主线程做会把滚动卡住。
     @MainActor
     static func fetchImage(_ url: URL) async -> UIImage? {
         await ImageGate.shared.acquire()
         defer { ImageGate.shared.release() }
         guard let raw = await fetchImageText(url) else { return nil }
-        return SiteImage.image(from: raw)
+        return await Task.detached(priority: .utility) { () -> UIImage? in
+            guard let full = SiteImage.image(from: raw) else { return nil }
+            // 列表格子只有 ~100pt，先缩到 300pt 存缓存，省内存也省渲染
+            return full.preparingThumbnail(ofSize: CGSize(width: 300, height: 300)) ?? full
+        }.value
     }
 
     static func fetchImageText(_ url: URL) async -> String? {
