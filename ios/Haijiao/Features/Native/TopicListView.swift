@@ -339,12 +339,17 @@ struct NativeHomeView: View {
                             }
                         }
                 }
-                .navigationDestination(item: $detailTarget) { id in
-                    TopicDetailView(topicId: id, onOpenWeb: { tid in
-                        onOpen(TopicAPI.detailURL(topicId: tid))
-                    }, onOpenUser: { uid in
-                        if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
-                    })
+                .navigationDestination(isPresented: Binding(
+                    get: { detailTarget != nil },
+                    set: { if !$0 { detailTarget = nil } }
+                )) {
+                    if let id = detailTarget {
+                        TopicDetailView(topicId: id, onOpenWeb: { tid in
+                            onOpen(TopicAPI.detailURL(topicId: tid))
+                        }, onOpenUser: { uid in
+                            if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
+                        })
+                    }
                 }
 
                 // 首屏还没有内容时的占位
