@@ -176,7 +176,7 @@ final class ImageGate {
         return await Task.detached(priority: .utility) { () -> UIImage? in
             guard let full = SiteImage.image(from: raw) else { return nil }
             // 列表格子只有 ~100pt，先缩到 300pt 存缓存，省内存也省渲染
-            return full.preparingThumbnail(ofSize: CGSize(width: 300, height: 300)) ?? full
+            return full.preparingThumbnail(of: CGSize(width: 300, height: 300)) ?? full
         }.value
     }
 
