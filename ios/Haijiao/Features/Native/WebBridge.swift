@@ -22,7 +22,7 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     private var web: WKWebView?
     private var ready = false
     private var loading = false
-    private var waiters: [CheckedContinuation<Bool, Never>] = []
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     private func makeWebView() -> WKWebView {
         let cfg = WKWebViewConfiguration()
@@ -41,18 +41,29 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         return w
     }
 
-    /// 保证页面已加载完成（首次调用会真的去加载 /home）
-    func prepare() async {
+    /// 保证页面已加载完成（首次调用会真的去加载 /home）。
+    /// 必须带超时：didFinish 可能永远不来（网络不通/被拦），否则这里会永远 await，
+    /// 表现就是列表一直转圈、什么错都不报。
+    func prepare(timeout: TimeInterval = 12) async {
         if ready { return }
         if web == nil { web = makeWebView() }
         if loading {
-            _ = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in waiters.append(c) }
+            await waitFinish(timeout: timeout)
             return
         }
         guard let w = web else { return }
         loading = true
         w.load(URLRequest(url: URL(string: "\(TopicAPI.base)/home")!))
-        _ = await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in waiters.append(c) }
+        await waitFinish(timeout: timeout)
+    }
+
+    private func waitFinish(timeout: TimeInterval) async {
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            waiters.append(c)
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
+                self?.finish(false)      // 超时：resume 所有等待者，让上层拿到错误而不是干等
+            }
+        }
     }
 
     private func finish(_ ok: Bool) {
@@ -60,36 +71,49 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         if ok { ready = true }
         let list = waiters
         waiters = []
-        list.forEach { $0.resume(returning: ok) }
+        list.forEach { $0.resume() }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { finish(true) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { finish(false) }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { finish(false) }
 
-    /// 在页面上下文里请求某个 API 路径，返回原始响应文本
+    /// 在页面上下文里请求某个 API 路径，返回原始响应文本。
+    /// 不依赖 evaluateJavaScript 对 Promise 的处理（真机上不可靠）：
+    /// JS 只负责把结果写进 window.__hj_r[token]，原生轮询取。
     func fetchRaw(path: String) async throws -> String {
         await prepare()
         guard let w = web else { throw TopicAPI.APIError.envelope("WebView 不可用") }
+        let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let js = """
         (function(){
-          return fetch('\(path)', { headers: { 'accept': 'application/json, text/plain, */*' } })
-            .then(function(r){ return '__STATUS__' + r.status + '__BODY__' + r.text(); })
-            .catch(function(e){ return '__ERR__' + (e && e.message ? e.message : e); });
+          window.__hj_r = window.__hj_r || {};
+          window.__hj_r['\(token)'] = '';
+          fetch('\(path)', { headers: { 'accept': 'application/json, text/plain, */*' } })
+            .then(function(r){ return r.text().then(function(t){ window.__hj_r['\(token)'] = '__S__' + r.status + '|' + t; }); })
+            .catch(function(e){ window.__hj_r['\(token)'] = '__E__' + (e && e.message ? e.message : String(e)); });
+          return true;
         })()
         """
-        // evaluateJavaScript 会自动等待 Promise 的 resolve
-        let result = try await w.evaluateJavaScript(js)
-        guard let s = result as? String else { throw TopicAPI.APIError.payload("JS 返回非字符串") }
-        if s.hasPrefix("__ERR__") { throw TopicAPI.APIError.envelope("fetch 失败：" + String(s.dropFirst(7).prefix(60))) }
-        if s.hasPrefix("__STATUS__"), let range = s.range(of: "__BODY__") {
-            let status = String(s[s.index(s.startIndex, offsetBy: 10)..<range.lowerBound])
-            let body = String(s[range.upperBound...])
-            if status != "200" {
-                throw TopicAPI.APIError.envelope("HTTP \(status)：" + String(body.prefix(80)))
+        _ = try? await w.evaluateJavaScript(js)
+
+        for _ in 0..<120 {                       // 最多等 12 秒
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let v = try? await w.evaluateJavaScript("(window.__hj_r && window.__hj_r['\(token)']) || ''")
+            guard let s = v as? String, !s.isEmpty else { continue }
+            if s.hasPrefix("__E__") {
+                throw TopicAPI.APIError.envelope("页面内 fetch 失败：" + String(s.dropFirst(5).prefix(80)))
             }
-            return body
+            if s.hasPrefix("__S__"), let bar = s.firstIndex(of: "|") {
+                let status = String(s[s.index(s.startIndex, offsetBy: 5)..<bar])
+                let body = String(s[s.index(after: bar)...])
+                if status != "200" {
+                    throw TopicAPI.APIError.envelope("HTTP \(status)：" + String(body.prefix(100)))
+                }
+                return body
+            }
+            return s
         }
-        return s
+        throw TopicAPI.APIError.envelope("网页通道超时（12s 无响应）")
     }
 }

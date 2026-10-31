@@ -107,6 +107,8 @@ enum TopicAPI {
     }
 
     /// 网页通道：在 WKWebView 里用 fetch 调同一接口（同源/同 UA/同 Cookie，绕过直连可能遇到的拦截页）
+    /// 标 @MainActor：WebBridge 是主线程隔离的，跨隔离访问需要 await 或统一到主线程。
+    @MainActor
     static func fetchTopicsViaWeb(page: Int) async throws -> TopicPage {
         let raw = try await WebBridge.shared.fetchRaw(path: "/api/topic/hot/topics?page=\(page)")
         guard let data = raw.data(using: .utf8) else {
