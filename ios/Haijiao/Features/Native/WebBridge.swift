@@ -37,6 +37,9 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         if let c = slotWaiters.first { slotWaiters.removeFirst(); c.resume() }
     }
 
+    /// 供诊断页查询页面是否真的加载好了
+    var isReady: Bool { ready }
+
     private var web: WKWebView?
     private var ready = false
     private var loading = false

@@ -27,15 +27,21 @@ struct WebVideoPlayer: UIViewRepresentable {
         wv.backgroundColor = .black
         wv.scrollView.isScrollEnabled = false
         wv.scrollView.backgroundColor = .black
-        // 直接用 WebKit 打开 m3u8：iOS 的 WebKit 有内置 HLS 播放器，比 loadHTMLString + <video> 可靠（后者页面 origin 是 about:blank，跨域会被拦）
-        wv.load(URLRequest(url: url))
+        // 注意：WKWebView 直接 load(m3u8) 不会播放（那是 Safari 的行为，WebView 会当文本文档）。
+        // 必须用 loadHTMLString + <video>，且 baseURL 给域名根，让 .ts/.key 相对路径同源解析。
+        load(wv)
         return wv
     }
 
     func updateUIView(_ wv: WKWebView, context: Context) { }
 
     private func load(_ wv: WKWebView) {
-        // baseURL 用播放列表本身，相对路径的 .ts / .key 才能正确解析
+        // baseURL 给**域名根**：这样页面 origin 就是 https://ts10.…，<video> 拉 .ts/.key 算同源，
+        // 不会被当成跨域拦掉。（给完整 m3u8 路径做 baseURL 也能达到同样效果，但语义更清楚。）
+        var root = URL(string: "https://\(url.host ?? "")/") ?? url
+        if let scheme = url.scheme, let host = url.host {
+            root = URL(string: "\(scheme)://\(host)/") ?? url
+        }
         let html = """
         <!DOCTYPE html>
         <html><head>
@@ -60,6 +66,6 @@ struct WebVideoPlayer: UIViewRepresentable {
         </script>
         </body></html>
         """
-        wv.loadHTMLString(html, baseURL: url)
+        wv.loadHTMLString(html, baseURL: root)
     }
 }

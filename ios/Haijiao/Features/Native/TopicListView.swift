@@ -199,6 +199,7 @@ struct NativeHomeView: View {
 
     @StateObject private var store = TopicStore()
     @ObservedObject private var stats = ImageStats.shared
+    @State private var showDiag = false
 
     var body: some View {
         NavigationView {
@@ -262,12 +263,23 @@ struct NativeHomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        onSwitchToWeb()
-                    } label: {
-                        Image(systemName: "safari")
+                    HStack(spacing: 14) {
+                        Button {
+                            showDiag = true
+                        } label: {
+                            Image(systemName: "stethoscope")
+                        }
+                        Button {
+                            onSwitchToWeb()
+                        } label: {
+                            Image(systemName: "safari")
+                        }
                     }
                 }
+            }
+            .sheet(isPresented: $showDiag) {
+                DiagnosticsView()
+                    .preferredColorScheme(.dark)
             }
             .task { await store.loadFirstIfNeeded() }
             .refreshable { await store.reload() }
