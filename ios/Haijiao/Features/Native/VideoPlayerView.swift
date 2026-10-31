@@ -20,12 +20,19 @@ struct VideoPlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var failed = false
+    /// 默认走 WebKit：真机上媒体 CDN 用原生栈拿不到，网页内核能拿到。
+    /// 只有显式验证过原生可用（video.nativeOK）才用 AVPlayer。
+    @State private var useWebKit: Bool = !UserDefaults.standard.bool(forKey: "video.nativeOK")
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let player {
+            if useWebKit {
+                // 原生栈拿不到媒体 CDN 时，用 WebKit 播（它走自己的网络栈）
+                WebVideoPlayer(url: url)
+                    .ignoresSafeArea()
+            } else if let player {
                 VideoPlayer(player: player)
                     .ignoresSafeArea()
                     .onAppear { player.play() }
@@ -33,10 +40,23 @@ struct VideoPlayerView: View {
                 VStack(spacing: 10) {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 34))
-                    Text("这个视频播不了（地址失效或格式不支持）")
+                    Text("原生播放失败：\(url.host ?? "?")")
                         .font(.system(size: 14))
-                    Button("关闭") { dismiss() }
-                        .padding(.top, 6)
+                    Text("换网页内核试试")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.6))
+                    HStack(spacing: 12) {
+                        Button("用网页内核播放") {
+                            player?.pause()
+                            player = nil
+                            failed = false
+                            useWebKit = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("关闭") { dismiss() }
+                            .buttonStyle(.bordered)
+                    }
+                    .padding(.top, 6)
                 }
                 .foregroundStyle(.white.opacity(0.85))
             } else {
@@ -77,7 +97,7 @@ struct VideoPlayerView: View {
                 }
             }
         }
-        .onAppear { prepare() }
+        .onAppear { if !useWebKit { prepare() } }
         .onDisappear { player?.pause(); player = nil }
     }
 
