@@ -292,15 +292,21 @@ struct TopicDetailView: View {
                     .preferredColorScheme(.dark)
             }
         }
-        .alert("suban 解析需要 token", isPresented: $showTokenPrompt) {
-            TextField("粘贴 suban token", text: $tokenInput)
+        .alert("填解析口令", isPresented: $showTokenPrompt) {
+            TextField("kitty 口令（kthjau）或 suban token", text: $tokenInput)
             Button("保存并重试") {
-                UserDefaults.standard.set(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "suban.token")
+                let v = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                // 看形态粗判：kitty 的口令通常是短串，suban token 更长
+                if v.count <= 24 {
+                    UserDefaults.standard.set(v, forKey: "kitty.passcode")
+                } else {
+                    UserDefaults.standard.set(v, forKey: "suban.token")
+                }
                 if let u = store.detail?.videoURL { resolveViaSuban(previewURL: u) }
             }
             Button("只播预览", role: .cancel) { showPlayer = true }
         } message: {
-            Text(subanError ?? "未登录只有极少试用额度。到 suban.vip 注册后把 token 填进来。")
+            Text(subanError ?? "两个源都可用：kittymao.xyz（免费口令，官网领取）或 suban.vip（token）。粘贴哪一个由我自动识别。")
         }
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.load(topicId: topicId) }
@@ -374,30 +380,39 @@ struct TopicDetailView: View {
             showPlayer = true
             return
         }
-        let token = UserDefaults.standard.string(forKey: "suban.token")
+        // 两个解析源：kitty（明文、简单）优先，其次 suban（加密协议）
+        let kittyCode = UserDefaults.standard.string(forKey: "kitty.passcode")
+        let subanToken = UserDefaults.standard.string(forKey: "suban.token")
         subanBusy = true
         subanError = nil
         Task {
-            do {
-                let u = try await SubanClient.decodeStream(topicId: tid, attachmentId: aid, token: token)
-                await MainActor.run {
-                    subanBusy = false
-                    subanURL = u
-                    playFromSuban = true
-                    showPlayer = true
-                }
-            } catch {
-                await MainActor.run {
-                    subanBusy = false
-                    let msg = error.localizedDescription
-                    subanError = msg
-                    // 额度不足 / 未登录 / token 失效 → 让用户填 token；其它错误直接播预览
-                    let needToken = msg.contains("额度") || msg.contains("订阅") || msg.contains("401")
-                    if needToken || (token ?? "").isEmpty {
-                        showTokenPrompt = true
-                    } else {
-                        showPlayer = true
+            var lastError: String?
+            if let k = kittyCode, !k.trimmingCharacters(in: .whitespaces).isEmpty {
+                do {
+                    let u = try await KittyClient.decodeStream(topicId: tid, attachmentId: aid, passcode: k)
+                    await MainActor.run {
+                        subanBusy = false; subanURL = u; playFromSuban = true; showPlayer = true
                     }
+                    return
+                } catch { lastError = "kitty：" + error.localizedDescription }
+            }
+            do {
+                let u = try await SubanClient.decodeStream(topicId: tid, attachmentId: aid, token: subanToken)
+                await MainActor.run {
+                    subanBusy = false; subanURL = u; playFromSuban = true; showPlayer = true
+                }
+                return
+            } catch {
+                lastError = (lastError.map { $0 + " ｜ " } ?? "") + "suban：" + error.localizedDescription
+            }
+            await MainActor.run {
+                subanBusy = false
+                subanError = lastError
+                let needCode = (kittyCode ?? "").isEmpty && (subanToken ?? "").isEmpty
+                if needCode {
+                    showTokenPrompt = true
+                } else {
+                    showPlayer = true   // 解析源都失败就退回播预览
                 }
             }
         }
