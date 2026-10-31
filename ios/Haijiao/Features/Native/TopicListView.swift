@@ -203,6 +203,8 @@ final class TopicStore: ObservableObject {
 
 struct TopicRow: View {
     let topic: Topic
+    /// 点头像/昵称 → 作者主页
+    var onTapUser: ((Int) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -213,21 +215,30 @@ struct TopicRow: View {
                 .foregroundStyle(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // 作者行：头像 + 昵称 + 付费/分类徽标
+            // 作者行：头像 + 昵称 + 角标（头像是独立按钮，不触发卡片跳转）
             HStack(spacing: 6) {
-                if let head = TopicAPI.imageURL(topic.user?.avatar) {
-                    RemoteImage(url: head, maxSide: 120)
-                        .frame(width: 18, height: 18)
-                        .clipShape(Circle())
-                } else {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(Theme.subtext)
+                Button {
+                    if let uid = topic.user?.id { onTapUser?(uid) }
+                } label: {
+                    HStack(spacing: 6) {
+                        if let head = TopicAPI.imageURL(topic.user?.avatar) {
+                            RemoteImage(url: head, maxSide: 120)
+                                .frame(width: 18, height: 18)
+                                .clipShape(Circle())
+                        } else {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Theme.subtext)
+                        }
+                        Text(topic.user?.nickname ?? "匿名")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.subtext)
+                            .lineLimit(1)
+                    }
                 }
-                Text(topic.user?.nickname ?? "匿名")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.subtext)
-                    .lineLimit(1)
+                .buttonStyle(.plain)
+                .disabled(topic.user?.id == nil)
+
                 if let badge = badgeText {
                     Text(badge)
                         .font(.system(size: 10, weight: .medium))
@@ -314,9 +325,13 @@ struct NativeHomeView: View {
                     NavigationLink {
                         TopicDetailView(topicId: t.id, onOpenWeb: { id in
                             onOpen(TopicAPI.detailURL(topicId: id))
+                        }, onOpenUser: { uid in
+                            if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
                         })
                     } label: {
-                        TopicRow(topic: t)
+                        TopicRow(topic: t, onTapUser: { uid in
+                            if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
+                        })
                     }
                     .buttonStyle(PressableRowStyle())
                     .listRowSeparator(.hidden)

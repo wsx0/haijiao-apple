@@ -271,6 +271,11 @@ final class ImageGate {
     }
 
     /// 详情页（SPA 路由 post/details），点条目时交给内置 WebView 打开
+    /// 作者主页（站点路由 /homepage/<userId>，见站点 JS 的 LAYOUT_PAGE_PREFIXES）
+    static func homepageURL(userId: Int) -> URL? {
+        URL(string: "\(base)/homepage/\(userId)")
+    }
+
     static func detailURL(topicId: Int) -> URL? {
         URL(string: "\(base)/post/details?topicId=\(topicId)")
     }

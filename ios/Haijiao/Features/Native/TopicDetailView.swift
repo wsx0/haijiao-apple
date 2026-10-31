@@ -222,6 +222,8 @@ final class TopicDetailStore: ObservableObject {
 struct TopicDetailView: View {
     let topicId: Int
     let onOpenWeb: (Int) -> Void
+    /// 打开作者主页（传 userId）
+    var onOpenUser: ((Int) -> Void)? = nil
 
     @StateObject private var store = TopicDetailStore()
     @ObservedObject private var stats = ImageStats.shared
@@ -337,15 +339,23 @@ struct TopicDetailView: View {
                 .font(.system(size: 20, weight: .bold))
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                if let head = TopicAPI.imageURL(d.user?.avatar) {
-                    RemoteImage(url: head, maxSide: 200)
-                        .frame(width: 28, height: 28)
-                        .clipShape(Circle())
-                } else {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 26))
-                        .foregroundStyle(Theme.subtext)
+                Button {
+                    if let uid = d.user?.id { onOpenUser?(uid) }
+                } label: {
+                    HStack(spacing: 8) {
+                        if let head = TopicAPI.imageURL(d.user?.avatar) {
+                            RemoteImage(url: head, maxSide: 200)
+                                .frame(width: 28, height: 28)
+                                .clipShape(Circle())
+                        } else {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.system(size: 26))
+                                .foregroundStyle(Theme.subtext)
+                        }
+                    }
                 }
+                .buttonStyle(.plain)
+                .disabled(d.user?.id == nil)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(d.user?.nickname ?? "匿名")
                         .font(.system(size: 13, weight: .medium))
