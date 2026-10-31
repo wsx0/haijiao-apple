@@ -24,14 +24,18 @@ struct RemoteImage: View {
     var attID: Int? = nil
     let url: URL?
     /// 长边上限。列表格子 300 够用；详情页大图必须给大的，否则会糊。
-    var maxSide: CGFloat = 600
+    var maxSide: CGFloat = 300
+    /// 列表格子要填满（fill）；详情页正文图要完整显示（fit），否则竖图会被裁成一条。
+    var contentMode: ContentMode = .fill
     @State private var image: UIImage?
     @State private var failed = false
 
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 ZStack {
                     Color.gray.opacity(0.15)
@@ -39,7 +43,13 @@ struct RemoteImage: View {
                 }
             }
         }
-        .task(id: url?.absoluteString) { await load() }
+        .onAppear {
+            // 不用 .task：.task 的生命周期绑在视图上，List 复用单元格时会**取消**它，
+            // 正在下载的图就被打断，永远出不来 —— 表现就是「只加载一部分」。
+            // 这里起独立 Task，视图滚走也让它跑完，结果进缓存，回来直接命中。
+            guard image == nil, !failed else { return }
+            Task { await load() }
+        }
     }
 
     @MainActor

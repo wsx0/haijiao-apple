@@ -260,10 +260,11 @@ struct TopicDetailView: View {
                                 .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         case .image(let u):
-                            RemoteImage(url: u, maxSide: 1400)
+                            // 关键：不要固定高度 + clipped。
+                            // 竖图放进 390×260 的框里会被 scaledToFill 放大后裁掉上下，
+                            // 看起来就是「糊 + 只显示一部分」。这里按原始比例完整显示。
+                            RemoteImage(url: u, maxSide: 1400, contentMode: .fit)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 260)
-                                .clipped()
                                 .cornerRadius(8)
                         case .door(let door):
                             doorCard(door, onOpenWeb: onOpenWeb)
