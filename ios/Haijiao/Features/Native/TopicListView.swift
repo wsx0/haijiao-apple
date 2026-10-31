@@ -89,6 +89,10 @@ final class TopicStore: ObservableObject {
     /// 还有没有下一页
     var hasMore: Bool { nextPage <= total }
 
+    /// 当前 Tab / 搜索词
+    var kind: FeedKind = .hot
+    var keyword: String = ""
+
     private var nextPage = 1
     private var total = 1000
     private var started = false
@@ -101,6 +105,20 @@ final class TopicStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await WebBridge.shared.prepare(timeout: 15)
         }
+        await reload()
+    }
+
+    /// 切换 Tab
+    func applyKind(_ k: FeedKind) async {
+        kind = k
+        keyword = ""
+        started = false
+        await reload()
+    }
+
+    /// 搜索（空串等于回到 Tab 列表）
+    func applySearch(_ text: String) async {
+        keyword = text.trimmingCharacters(in: .whitespacesAndNewlines)
         await reload()
     }
 
@@ -118,7 +136,7 @@ final class TopicStore: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            let fetched = try await TopicAPI.fetchTopics(page: nextPage)
+            let fetched = try await TopicAPI.fetchTopics(page: nextPage, kind: kind, keyword: keyword.isEmpty ? nil : keyword)
             let raw = fetched.results
             // topicId 缺失的条目会让 Identifiable 的 id 全变 0 → List 身份冲突，直接丢掉
             let items = raw.filter { ($0.topicId ?? 0) > 0 }
@@ -256,6 +274,8 @@ struct NativeHomeView: View {
     @StateObject private var store = TopicStore()
     @ObservedObject private var stats = ImageStats.shared
     @State private var showDiag = false
+    @State private var searchText = ""
+    @State private var feedKind: FeedKind = .hot
 
     var body: some View {
         NavigationView {
@@ -334,6 +354,27 @@ struct NativeHomeView: View {
             .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
             .scrollContentBackground(.hidden)
             .background(Theme.canvas)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索帖子")
+            .onSubmit(of: .search) {
+                Task { await store.applySearch(searchText) }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                VStack(spacing: 0) {
+                    Picker("", selection: $feedKind) {
+                        ForEach(FeedKind.allCases) { k in
+                            Text(k.rawValue).tag(k)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    Divider().overlay(Theme.divider)
+                }
+                .background(Theme.canvas)
+            }
+            .onChange(of: feedKind) { newValue in
+                Task { await store.applyKind(newValue) }
+            }
             .navigationTitle(store.topics.isEmpty ? "海角" : "海角 · \(store.topics.count) 条")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

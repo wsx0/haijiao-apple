@@ -12,6 +12,14 @@
 import Foundation
 import UIKit
 
+/// 顶部 Tab
+enum FeedKind: String, CaseIterable, Identifiable {
+    case hot = "热门"
+    case newest = "最新"
+    case essence = "精华"
+    var id: String { rawValue }
+}
+
 enum TopicAPI {
 
     static let base = "https://haijiao.com"
@@ -75,8 +83,24 @@ enum TopicAPI {
     }
 
     /// 直连：URLSession 打接口
-    static func fetchTopicsDirect(page: Int, cookie: String?) async throws -> TopicPage {
-        guard let url = URL(string: "\(base)/api/topic/hot/topics?page=\(page)") else {
+    static func fetchTopicsDirect(page: Int, cookie: String?, kind: FeedKind = .hot, keyword: String? = nil) async throws -> TopicPage {
+        // 侦察结论（tabs-probe）：只有 hot/topics 和 search 两个可用接口。
+        // · 热门 = hot/topics
+        // · 精华 = hot/topics?type=essence（实测服务端忽略了 type，返回同一批；先照发，能变就变）
+        // · 最新 = hot/topics 拉回来后按 createTime 客户端降序（没有独立接口）
+        // · 搜索 = /api/topic/search?keyword=
+        let path: String
+        if let kw = keyword?.trimmingCharacters(in: .whitespacesAndNewlines), !kw.isEmpty {
+            let enc = kw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kw
+            path = "/api/topic/search?keyword=\(enc)&page=\(page)"
+        } else {
+            switch kind {
+            case .hot:     path = "/api/topic/hot/topics?page=\(page)"
+            case .essence: path = "/api/topic/hot/topics?page=\(page)&type=essence"
+            case .newest:  path = "/api/topic/hot/topics?page=\(page)"
+            }
+        }
+        guard let url = URL(string: base + path) else {
             throw URLError(.badURL)
         }
         var req = URLRequest(url: url)
@@ -273,13 +297,13 @@ final class ImageGate {
 
     /// 统一入口：先直连（快），失败自动切网页通道。
     /// 两条路的错误都会带上原始响应前缀，便于定位到底卡在哪一层。
-    static func fetchTopics(page: Int) async throws -> TopicPage {
+    static func fetchTopics(page: Int, kind: FeedKind = .hot, keyword: String? = nil) async throws -> TopicPage {
         // 先让隐藏 WebView 打开过首页：一来拿站点 Cookie，二来保证网页通道随时可用
         await WebBridge.shared.prepare()
         let cookie = await WebBridge.shared.cookieHeader()
         var directError: Error?
         do {
-            return try await fetchTopicsDirect(page: page, cookie: cookie)
+            return try await fetchTopicsDirect(page: page, cookie: cookie, kind: kind, keyword: keyword)
         } catch {
             directError = error
         }
