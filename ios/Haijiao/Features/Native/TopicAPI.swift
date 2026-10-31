@@ -174,7 +174,7 @@ final class ImageGate {
         defer { ImageGate.shared.release() }
 
         guard let raw = await fetchImageText(url) else {
-            ImageStats.shared.record(failure: "下载失败 \(url.host ?? "?")")
+            ImageStats.shared.record(failure: "下载失败(直连+网页) \(url.host ?? "?")")
             return nil
         }
         let decoded = await Task.detached(priority: .utility) { () -> UIImage? in
@@ -191,6 +191,16 @@ final class ImageGate {
     }
 
     static func fetchImageText(_ url: URL) async -> String? {
+        // ① 原生 URLSession
+        if let t = await directImageText(url) { return t }
+        // ② 失败 → 用隐藏 WebView 在页面里 fetch（同源/同 DNS/同 TLS，网页版能拿到的它就能拿到）
+        if let t = try? await WebBridge.shared.fetchRaw(path: url.absoluteString), !t.isEmpty {
+            return t
+        }
+        return nil
+    }
+
+    private static func directImageText(_ url: URL) async -> String? {
         var req = URLRequest(url: url)
         req.timeoutInterval = 20
         req.setValue(ua, forHTTPHeaderField: "User-Agent")
