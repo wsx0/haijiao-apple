@@ -64,7 +64,8 @@ enum TopicAPI {
         return TopicPage(page: info, results: list.map { Topic(dict: $0) })
     }
 
-    static func fetchTopics(page: Int) async throws -> TopicPage {
+    /// 直连：URLSession 打接口
+    static func fetchTopicsDirect(page: Int) async throws -> TopicPage {
         guard let url = URL(string: "\(base)/api/topic/hot/topics?page=\(page)") else {
             throw URLError(.badURL)
         }
@@ -104,4 +105,38 @@ enum TopicAPI {
         guard let s = raw, !s.isEmpty, s.hasPrefix("http") else { return nil }
         return URL(string: s)
     }
+
+    /// 网页通道：在 WKWebView 里用 fetch 调同一接口（同源/同 UA/同 Cookie，绕过直连可能遇到的拦截页）
+    static func fetchTopicsViaWeb(page: Int) async throws -> TopicPage {
+        let raw = try await WebBridge.shared.fetchRaw(path: "/api/topic/hot/topics?page=\(page)")
+        guard let data = raw.data(using: .utf8) else {
+            throw APIError.payload("响应不是 UTF-8")
+        }
+        guard let env = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw APIError.envelope(String(raw.prefix(100)))
+        }
+        guard let payload = env["data"] as? String, let json = decodePayload(payload) else {
+            throw APIError.payload("data 字段解码失败：" + String(raw.prefix(80)))
+        }
+        return try parsePage(json)
+    }
+
+    /// 统一入口：先直连（快），失败自动切网页通道。
+    /// 两条路的错误都会带上原始响应前缀，便于定位到底卡在哪一层。
+    static func fetchTopics(page: Int) async throws -> TopicPage {
+        var directError: Error?
+        do {
+            return try await fetchTopicsDirect(page: page)
+        } catch {
+            directError = error
+        }
+        do {
+            return try await fetchTopicsViaWeb(page: page)
+        } catch {
+            let a = (directError as? APIError)?.errorDescription ?? directError?.localizedDescription ?? "未知"
+            let b = (error as? APIError)?.errorDescription ?? error.localizedDescription
+            throw APIError.payload("直连：\(a) ｜ 网页通道：\(b)")
+        }
+    }
 }
+

@@ -206,11 +206,20 @@ struct NativeHomeView: View {
                 }
 
                 if let e = store.errorText {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(e).font(.system(size: 12)).foregroundStyle(.red)
-                        Button("重试") { Task { await store.reload() } }
-                            .font(.system(size: 13))
+                    VStack(alignment: .leading, spacing: 8) {
+                        // 完整显示、可长按复制：出错时这行文字本身就是诊断信息
+                        Text(e)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                        HStack(spacing: 14) {
+                            Button("重试") { Task { await store.reload() } }
+                            Button("用网页版打开") { onSwitchToWeb() }
+                        }
+                        .font(.system(size: 13))
                     }
+                    .padding(.vertical, 6)
                     .listRowSeparator(.hidden)
                 }
             }
