@@ -239,7 +239,7 @@ struct NativeHomeView: View {
                 }
             }
             .listStyle(.plain)
-            .navigationTitle("海角")
+            .navigationTitle(store.topics.isEmpty ? "海角" : "海角 · \(store.topics.count) 条")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

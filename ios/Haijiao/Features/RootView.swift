@@ -13,7 +13,10 @@ import SwiftUI
 import WebKit
 
 struct RootView: View {
-    @AppStorage("hj.mode2") private var mode: String = "native"
+    /// 不持久化：每次启动都从原生列表开始。
+    /// 网页版只作为「看详情 / 兜底」的临时入口 —— 存进 UserDefaults 会导致切一次之后
+    /// 再也回不到默认路径（2.0.0~2.0.5 的修复就是这么没被验证到的）。
+    @State private var mode: String = "native"
     @State private var webURL: URL = HJWeb.home
 
     var body: some View {
@@ -57,9 +60,9 @@ struct WebHomeView: View {
     @State private var ruleLists: [WKContentRuleList] = []
     /// 规则编译是否已结束（成功或失败都算结束）
     @State private var rulesReady = false
-    /// 诊断文本（前 10 秒采集，直接画在界面上，截图即可定位「划不动」）
+    /// 网页侧的诊断文本：还在采集（方便以后排查），但不再画到屏幕上
     @State private var diag = ""
-    @State private var diagVisible = true
+    /// 诊断文本（前 10 秒采集，直接画在界面上，截图即可定位「划不动」）
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -77,20 +80,6 @@ struct WebHomeView: View {
                           diag: $diag)
                 .ignoresSafeArea(edges: .bottom)
 
-            // 诊断面板：启动后前 20 秒显示（不影响触摸）
-            if diagVisible, !diag.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(diag)
-                        .font(.system(size: 9, design: .monospaced))
-                        .foregroundStyle(Color.green)
-                        .padding(4)
-                        .background(Color.black.opacity(0.7))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 40)
-                .padding(.horizontal, 4)
-                .allowsHitTesting(false)
-            }
 
             // 顶部进度条
             if progress > 0, progress < 1 {
@@ -141,10 +130,6 @@ struct WebHomeView: View {
         .task {
             ruleLists = await AdBlock.makeRuleLists()
             rulesReady = true
-        }
-        .task {
-            try? await Task.sleep(nanoseconds: 20_000_000_000)
-            diagVisible = false
         }
         .persistentSystemOverlays(.hidden)
     }

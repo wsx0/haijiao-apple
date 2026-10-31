@@ -21,7 +21,7 @@ PODFILE="$ROOT/ios/Podfile"  # 本项目无 Podfile，用纯系统框架
 WS="$ROOT/ios/Haijiao.xcworkspace"
 SCHEME="Haijiao"
 CONFIG="Release"
-VERSION="2.0.6"
+VERSION="2.1.0"
 OUT="$ROOT/build"
 
 MODE="unsigned"
