@@ -2,25 +2,29 @@
 //  Theme.swift
 //  Haijiao
 //
-//  配色对齐网页版：页面深灰底、卡片浅一级、描边非常轻。
-//  之前是纯黑（Color.black + List 默认样式），看起来跟站点差得远。
+//  配色对齐网页版：需要能看出「底 / 卡片 / 描边」三层，不能一坨黑。
+//  上一版 canvas #0E0E10 太接近纯黑，用户反馈「还是全黑」。
 //
 
 import SwiftUI
 
 enum Theme {
-    /// 页面底色（比纯黑柔一点）
-    static let canvas = Color(red: 0.055, green: 0.055, blue: 0.063)
-    /// 卡片/列表行底色
-    static let card = Color(red: 0.110, green: 0.110, blue: 0.122)
+    /// 页面底色（深灰，不是纯黑）
+    static let canvas = Color(red: 0.090, green: 0.090, blue: 0.102)      // #17171A
+    /// 卡片（明显比底色亮一级）
+    static let card = Color(red: 0.137, green: 0.137, blue: 0.153)        // #232327
+    /// 卡片按下态
+    static let cardPressed = Color(red: 0.176, green: 0.176, blue: 0.196) // #2D2D32
     /// 卡片描边
-    static let stroke = Color.white.opacity(0.06)
+    static let stroke = Color.white.opacity(0.09)
     /// 主文字
-    static let text = Color(red: 0.93, green: 0.93, blue: 0.94)
+    static let text = Color(red: 0.94, green: 0.94, blue: 0.96)
     /// 次要文字
-    static let subtext = Color(red: 0.62, green: 0.62, blue: 0.66)
-    /// 强调色（网页版主色偏暖橙）
-    static let accent = Color(red: 0.98, green: 0.55, blue: 0.24)
+    static let subtext = Color(red: 0.66, green: 0.66, blue: 0.70)
+    /// 强调色（网页版角标偏暖橙）
+    static let accent = Color(red: 0.98, green: 0.58, blue: 0.28)
     /// 标签底色
-    static let chip = Color.white.opacity(0.08)
+    static let chip = Color.white.opacity(0.10)
+    /// 分割线
+    static let divider = Color.white.opacity(0.08)
 }

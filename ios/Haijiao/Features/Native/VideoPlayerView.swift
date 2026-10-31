@@ -73,33 +73,27 @@ struct VideoPlayerView: View {
                 ProgressView().tint(.white)
             }
 
-            // 覆盖层只放左上角关闭 + 顶部信息，**不压底部**（系统进度条在底部）
-            VStack {
-                HStack(spacing: 8) {
-                    Button {
-                        player?.pause()
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 26))
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.white)
+            // 覆盖层只在「网页内核」模式出现（那条路没有系统控件，必须自己给关闭按钮）。
+            // AVPlayer 模式什么都不盖 —— 系统的「完成/进度条/画中画」全部可见可点，
+            // 上一版关掉标题也还是让用户觉得挡，因为左上角的 × 正好压住系统的「完成」。
+            if useWebKit {
+                VStack {
+                    HStack(spacing: 8) {
+                        Spacer()
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 26))
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(.white)
+                        }
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 50)
                     Spacer()
-                    if isPreview {
-                        Text("预览片段")
-                            .font(.system(size: 11, weight: .semibold))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(Color.orange.opacity(0.85), in: Capsule())
-                            .foregroundStyle(.white)
-                    }
                 }
-                .padding(.horizontal, 14)
-                .padding(.top, 6)
-                Spacer()
             }
-            .allowsHitTesting(true)
         }
         .onAppear { if !useWebKit { prepare() } }
         .onDisappear { player?.pause(); player = nil }

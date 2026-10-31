@@ -36,6 +36,7 @@ on:
       - 'scripts/video3-probe.mjs'
       - 'scripts/video4-probe.mjs'
       - 'scripts/sf-probe.mjs'
+      - 'scripts/tabs-probe.mjs'
       - 'scripts/sf-list-probe.mjs'
       - 'scripts/kitty-probe.mjs'
       - 'scripts/kitty-verify.mjs'
@@ -142,6 +143,9 @@ jobs:
       - name: 海角脚本清单筛选
         run: node scripts/sf-list-probe.mjs
 
+      - name: Tab 与搜索接口侦察
+        run: node scripts/tabs-probe.mjs
+
       - name: Kitty猫脚本分析
         run: node scripts/kitty-probe.mjs
 
@@ -192,6 +196,7 @@ jobs:
             out25/
             out26/
             out27/
+            out30/
             out28/
             out29/
           if-no-files-found: warn
