@@ -27,11 +27,14 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     private func makeWebView() -> WKWebView {
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .default()
-        let w = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1), configuration: cfg)
+        // 关键：不能是 1×1。帧太小会让站点的懒加载/虚拟滚动认为可视区极小，
+        // 页面几乎不渲染图片，img[data-id] 永远是 loading.gif → 收集表为空。
+        // 用正常手机尺寸 + 极低透明度 + 垫在最底层（被列表完全盖住，用户看不到）。
+        let w = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844), configuration: cfg)
         w.customUserAgent = TopicAPI.ua
         w.navigationDelegate = self
         w.isUserInteractionEnabled = false
-        w.alpha = 0.01
+        w.alpha = 0.02
         w.isHidden = false          // 必须真的在视图层级里，否则 WebKit 会挂起页面里的 JS
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
            let win = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first {
@@ -97,8 +100,8 @@ final class WebBridge: NSObject, WKNavigationDelegate {
                     }
                 }
             }
-            _ = try? await w.evaluateJavaScript("window.scrollBy(0, 1800); true")
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            _ = try? await w.evaluateJavaScript("window.scrollBy(0, 1500); true")
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
         if !map.isEmpty {
             for (k, v) in map where images[k] == nil { images[k] = v }

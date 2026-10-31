@@ -89,7 +89,7 @@ final class TopicStore: ObservableObject {
         // 自己解不开；但页面自己会解成 data URL，收集比逆向省事且稳定）
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            _ = await WebBridge.shared.collectImages(scrolls: 5)
+            _ = await WebBridge.shared.collectImages(scrolls: 8)
         }
         // 原来的注释保留说明
         Task {
