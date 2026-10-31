@@ -66,6 +66,54 @@ final class WebBridge: NSObject, WKNavigationDelegate {
         }
     }
 
+    /// 页面把加密的 .txt 在自己 JS 里解成了 data:image/jpeg;base64,… 直接塞进 img.src。
+    /// 与其逆那层变换，不如直接把它解好的结果收下来：按 attachment id 建表。
+    /// 边滚边收，滚几次就覆盖前几十条的图。
+    func collectImages(scrolls: Int = 6) async -> [String: String] {
+        await prepare(timeout: 12)
+        guard let w = web else { return [:] }
+        var map: [String: String] = [:]
+        let js = """
+        (function(){
+          var out = [];
+          var imgs = document.querySelectorAll('img[data-id]');
+          for (var i = 0; i < imgs.length; i++) {
+            var s = imgs[i].src || '';
+            if (s.indexOf('data:image') === 0 && s.length > 2000) {
+              var k = s.indexOf(',');
+              if (k > 0) out.push([imgs[i].getAttribute('data-id'), s.slice(k + 1)]);
+            }
+          }
+          return JSON.stringify(out);
+        })()
+        """
+        for _ in 0..<max(1, scrolls) {
+            if let s = try? await w.evaluateJavaScript(js) as? String,
+               let d = s.data(using: .utf8),
+               let arr = (try? JSONSerialization.jsonObject(with: d)) as? [[Any]] {
+                for pair in arr {
+                    if pair.count == 2, let k = pair[0] as? String, let v = pair[1] as? String, !v.isEmpty {
+                        map[k] = v
+                    }
+                }
+            }
+            _ = try? await w.evaluateJavaScript("window.scrollBy(0, 1800); true")
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+        }
+        if !map.isEmpty {
+            for (k, v) in map where images[k] == nil { images[k] = v }
+        }
+        return map
+    }
+
+    /// attachment id(String) → 已解码的图片 base64
+    private(set) var images: [String: String] = [:]
+
+    func cachedImage(_ id: Int?) -> String? {
+        guard let id else { return nil }
+        return images[String(id)]
+    }
+
     /// 用页面内 fetch 取一张图片，返回**纯 base64**（不含 data: 前缀）。
     /// 图片域名（pic.*.top）也有防盗链/风控，URLSession 拿不到时就走这条路。
     func fetchBase64Image(_ urlString: String) async throws -> String {

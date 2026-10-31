@@ -20,6 +20,8 @@ final class NativeImageCache {
 }
 
 struct RemoteImage: View {
+    /// attachment id：优先用它去查「页面已解码」的图片表
+    var attID: Int? = nil
     let url: URL?
     @State private var image: UIImage?
     @State private var failed = false
@@ -45,6 +47,15 @@ struct RemoteImage: View {
         let key = url.absoluteString
         if let cached = NativeImageCache.shared.get(key) {
             image = cached
+            return
+        }
+        // 最优路径：页面已经把这层编码解开了，按 attachment id 直接取
+        if let b64 = WebBridge.shared.cachedImage(attID),
+           let data = Data(base64Encoded: b64, options: .ignoreUnknownCharacters),
+           let img = UIImage(data: data) {
+            let thumb = await img.byPreparingThumbnail(ofSize: CGSize(width: 300, height: 300)) ?? img
+            NativeImageCache.shared.set(key, thumb)
+            image = thumb
             return
         }
         // 直连（带 Cookie/Referer）失败会内部回退到页面内 fetch，两条都不成才算失败
@@ -74,7 +85,13 @@ final class TopicStore: ObservableObject {
     func loadFirstIfNeeded() async {
         if started { return }
         started = true
-        // 延迟 2 秒预热隐藏 WebView：先让列表数据抢到带宽，再后台把图片通道准备好
+        // 延迟 2 秒预热隐藏 WebView，并把页面已解码的图片收下来（站点把图片编码过，
+        // 自己解不开；但页面自己会解成 data URL，收集比逆向省事且稳定）
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            _ = await WebBridge.shared.collectImages(scrolls: 5)
+        }
+        // 原来的注释保留说明
         Task {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await WebBridge.shared.prepare(timeout: 15)
@@ -144,8 +161,8 @@ struct TopicRow: View {
             let imgs = topic.displayImages
             if !imgs.isEmpty {
                 HStack(spacing: 4) {
-                    ForEach(Array(imgs.enumerated()), id: \.offset) { _, u in
-                        RemoteImage(url: u)
+                    ForEach(Array(imgs.enumerated()), id: \.offset) { _, item in
+                        RemoteImage(attID: item.id, url: item.url)
                             .frame(height: 104)
                             .frame(maxWidth: .infinity)
                             .clipped()

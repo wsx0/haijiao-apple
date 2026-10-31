@@ -59,8 +59,10 @@ struct Topic: Identifiable {
     let user: TopicUser?
     let node: TopicNode?
     let tags: [TopicTag]
-    /// 已经挑好、可直接渲染的缩略图地址（视频帖取封面）
-    let displayImages: [URL]
+    /// 已经挑好、可直接渲染的缩略图（带 attachment id —— 图片数据要按 id 从解码表里取）
+    let displayImages: [(id: Int, url: URL)]
+
+    var imageURLs: [URL] { displayImages.map { $0.url } }
 
     var id: Int { topicId ?? 0 }
 }
@@ -100,7 +102,7 @@ extension Topic {
         tags = parsedTags
 
         // 缩略图：视频类附件的 remoteUrl 是**视频文件**，必须取 coverUrl
-        var imgs: [URL] = []
+        var imgs: [(Int, URL)] = []
         if let arr = d["attachments"] as? [[String: Any]] {
             for a in arr {
                 let isVideo = (JSON.string(a["category"]) ?? "").lowercased().contains("video")
@@ -113,7 +115,7 @@ extension Topic {
                     raw = (remote?.isEmpty == false) ? remote : cover
                 }
                 if let s = raw, s.hasPrefix("http"), let u = URL(string: s) {
-                    imgs.append(u)
+                    imgs.append((JSON.int(a["id"]) ?? 0, u))
                 }
                 if imgs.count >= 3 { break }
             }

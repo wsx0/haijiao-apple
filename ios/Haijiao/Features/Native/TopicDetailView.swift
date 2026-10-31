@@ -26,12 +26,13 @@ struct TopicDetail {
     let doors: [TopicDoor]
     let isPaid: Bool
 
-    var images: [URL] {
+    var images: [(id: Int, url: URL)] {
         attachments.compactMap { a in
             let isVideo = (a.category ?? "").lowercased().contains("video")
             let raw = isVideo ? (a.coverUrl?.isEmpty == false ? a.coverUrl : a.remoteUrl)
                               : (a.remoteUrl?.isEmpty == false ? a.remoteUrl : a.coverUrl)
-            return TopicAPI.imageURL(raw)
+            guard let u = TopicAPI.imageURL(raw) else { return nil }
+            return (a.id ?? 0, u)
         }
     }
 }
