@@ -24,7 +24,7 @@ struct RemoteImage: View {
     var attID: Int? = nil
     let url: URL?
     /// 长边上限。列表格子 300 够用；详情页大图必须给大的，否则会糊。
-    var maxSide: CGFloat = 420
+    var maxSide: CGFloat = 600
     @State private var image: UIImage?
     @State private var failed = false
 

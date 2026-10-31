@@ -13,10 +13,13 @@ final class ImageStats: ObservableObject {
     static let shared = ImageStats()
 
     @Published private(set) var failures: [String: Int] = [:]
-    @Published private(set) var success = 0
+    /// 注意：成功计数**不能**是 @Published。
+    /// 每张图加载成功都触发它 → 观察它的列表每次都整体重绘 →
+    /// 120 张图就是 120 次全列表重绘，表现正是「图只出来一部分、还卡」。
+    private(set) var success = 0
 
     func recordOK() {
-        success += 1
+        success += 1          // 只累加，不通知 SwiftUI
     }
 
     func record(failure reason: String) {

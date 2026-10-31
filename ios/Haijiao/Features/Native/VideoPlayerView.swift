@@ -130,6 +130,21 @@ struct VideoPlayerView: View {
     }
 }
 
+extension URL {
+    /// 站点有时给的不是真 m3u8，而是包装链接：
+    ///   https://hjai97.top?m3u8=https://sto.resmeres.top/haijiao/.../xxx.m3u8
+    /// 真正的播放地址在 `m3u8` 查询参数里。不拆开的话 AVPlayer 直接报「格式不支持」。
+    var unwrappedStream: URL {
+        guard let comp = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              let raw = comp.queryItems?.first(where: { $0.name == "m3u8" || $0.name == "url" })?.value,
+              !raw.isEmpty
+        else { return self }
+        // 参数值可能还是被编码过的一次
+        let once = raw.removingPercentEncoding ?? raw
+        return URL(string: once) ?? URL(string: raw) ?? self
+    }
+}
+
 extension TopicDetail {
     /// 详情里的视频附件（取第一个）
     var videoAttachment: TopicAttachment? {
@@ -137,11 +152,13 @@ extension TopicDetail {
     }
 
     var videoURL: URL? {
-        guard let s = videoAttachment?.remoteUrl else { return nil }
-        return URL(string: s)
+        guard let s = videoAttachment?.remoteUrl, let u = URL(string: s) else { return nil }
+        // 剥掉 ?m3u8= 包装，拿到真实地址
+        return u.unwrappedStream
     }
 
     var videoIsPreview: Bool {
-        (videoAttachment?.remoteUrl ?? "").contains("_preview")
+        let raw = videoAttachment?.remoteUrl ?? ""
+        return raw.contains("_preview") || raw.contains("preview")
     }
 }
