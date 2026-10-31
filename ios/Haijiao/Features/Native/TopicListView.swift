@@ -210,15 +210,12 @@ struct TopicRow: View {
         VStack(alignment: .leading, spacing: 9) {
             authorRow
 
-            VStack(alignment: .leading, spacing: 9) {
-                    Text(topic.title?.isEmpty == false ? (topic.title ?? "") : (topic.liteContent ?? "（无标题）"))
-                        .font(.system(size: 16, weight: .semibold))
-                        .lineLimit(3)
-                        .foregroundStyle(Theme.text)
-                        .fixedSize(horizontal: false, vertical: true)
+            Text(topic.title?.isEmpty == false ? (topic.title ?? "") : (topic.liteContent ?? "（无标题）"))
+                .font(.system(size: 16, weight: .semibold))
+                .lineLimit(3)
+                .foregroundStyle(Theme.text)
+                .fixedSize(horizontal: false, vertical: true)
 
-
-            // 图片 / 摘要
             let imgs = topic.displayImages
             if !imgs.isEmpty {
                 HStack(spacing: 4) {
@@ -237,24 +234,19 @@ struct TopicRow: View {
                     .lineLimit(2)
             }
 
-                    // 统计 + 标签
-                    HStack(spacing: 10) {
-                        Label("\(topic.commentCount ?? 0)", systemImage: "bubble.left")
-                        Label("\(topic.viewCount ?? 0)", systemImage: "eye")
-                        if let n = topic.node?.name, !n.isEmpty {
-                            Text(n)
-                        }
-                        Spacer(minLength: 0)
-                        if let first = topic.tags.first?.tagName, !first.isEmpty {
-                            Text("#" + first)
-                                .lineLimit(1)
-                        }
-                    }
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.subtext)
+            HStack(spacing: 10) {
+                Label("\(topic.commentCount ?? 0)", systemImage: "bubble.left")
+                Label("\(topic.viewCount ?? 0)", systemImage: "eye")
+                if let n = topic.node?.name, !n.isEmpty {
+                    Text(n)
+                }
+                Spacer(minLength: 0)
+                if let first = topic.tags.first?.tagName, !first.isEmpty {
+                    Text("#" + first).lineLimit(1)
                 }
             }
-            .buttonStyle(.plain)
+            .font(.system(size: 11))
+            .foregroundStyle(Theme.subtext)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -265,27 +257,23 @@ struct TopicRow: View {
         )
     }
 
-    /// 作者行：头像 + 昵称 + 角标。放在 NavigationLink **外面**，
-    /// 这样头像的点击不会被卡片的导航抢走。
+    /// 作者行：纯展示。作者主页入口在长按菜单里（卡片整体是 NavigationLink，
+    /// 内部 Button 会被吞掉，所以不做成按钮）。
     private var authorRow: some View {
         HStack(spacing: 6) {
-            // 纯展示：卡片整体是 NavigationLink，内部按钮会被吞掉。
-            // 作者主页入口放在长按菜单里（contextMenu），稳定可靠。
-            HStack(spacing: 6) {
-                if let head = TopicAPI.imageURL(topic.user?.avatar) {
-                    RemoteImage(url: head, maxSide: 120)
-                        .frame(width: 18, height: 18)
-                        .clipShape(Circle())
-                } else {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(Theme.subtext)
-                }
-                Text(topic.user?.nickname ?? "匿名")
-                    .font(.system(size: 12))
+            if let head = TopicAPI.imageURL(topic.user?.avatar) {
+                RemoteImage(url: head, maxSide: 120)
+                    .frame(width: 18, height: 18)
+                    .clipShape(Circle())
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 16))
                     .foregroundStyle(Theme.subtext)
-                    .lineLimit(1)
             }
+            Text(topic.user?.nickname ?? "匿名")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.subtext)
+                .lineLimit(1)
 
             if let badge = badgeText {
                 Text(badge)
@@ -299,16 +287,14 @@ struct TopicRow: View {
         }
     }
 
-    /// 角标（Topic 模型里没有 money_type，用 hasVideo + 标题关键词近似网页版角标）
     private var badgeText: String? {
         if topic.hasVideo == true { return "视频" }
-        let t = topic.title ?? ""
-        if t.contains("原创") { return "原创" }
-        if t.contains("收费") { return "收费" }
+        let tt = topic.title ?? ""
+        if tt.contains("原创") { return "原创" }
+        if tt.contains("收费") { return "收费" }
         return nil
     }
 }
-
 // MARK: - 列表页
 
 struct NativeHomeView: View {
