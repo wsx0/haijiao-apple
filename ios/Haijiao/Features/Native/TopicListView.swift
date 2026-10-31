@@ -90,7 +90,7 @@ final class TopicStore: ObservableObject {
     var hasMore: Bool { nextPage <= total }
 
     /// 当前 Tab / 搜索词
-    var kind: FeedKind = .hot
+    var nodeId: Int = 0
     var keyword: String = ""
 
     private var nextPage = 1
@@ -108,9 +108,39 @@ final class TopicStore: ObservableObject {
         await reload()
     }
 
-    /// 切换 Tab
-    func applyKind(_ k: FeedKind) async {
-        kind = k
+    /// 顶部板块列表（默认给几个常用，抓到真实列表后替换）
+    @Published var tabs: [FeedTab] = [
+        FeedTab(id: 0, name: "推荐"),
+        FeedTab(id: 888, name: "热门"),
+        FeedTab(id: 2020, name: "海角视频"),
+        FeedTab(id: 900, name: "短视频"),
+        FeedTab(id: 205, name: "杂谈"),
+        FeedTab(id: 115, name: "自拍"),
+    ]
+
+    /// 拉站点真实板块，替换前几个 Tab 的名字
+    func loadNodes() async {
+        guard let nodes = try? await TopicAPI.fetchNodes(), !nodes.isEmpty else { return }
+        // 用真实名字覆盖预置的高频板块
+        var out: [FeedTab] = [FeedTab(id: 0, name: "推荐")]
+        let wanted = [888, 2020, 900, 205, 115, 1001]
+        for wid in wanted {
+            if let n = nodes.first(where: { $0.id == wid }) {
+                out.append(FeedTab(id: n.id, name: n.name))
+            }
+        }
+        // 再补几个热门板块凑够 7 个
+        for n in nodes where out.count < 7 {
+            if !out.contains(where: { $0.id == n.id }), n.name.count <= 6, n.name != "热门" {
+                out.append(FeedTab(id: n.id, name: n.name))
+            }
+        }
+        if out.count > 1 { tabs = out }
+    }
+
+    /// 切换板块
+    func applyNode(_ id: Int) async {
+        nodeId = id
         keyword = ""
         started = false
         await reload()
@@ -136,7 +166,7 @@ final class TopicStore: ObservableObject {
         loading = true
         defer { loading = false }
         do {
-            let fetched = try await TopicAPI.fetchTopics(page: nextPage, kind: kind, keyword: keyword.isEmpty ? nil : keyword)
+            let fetched = try await TopicAPI.fetchTopics(page: nextPage, nodeId: nodeId, keyword: keyword.isEmpty ? nil : keyword)
             let raw = fetched.results
             // topicId 缺失的条目会让 Identifiable 的 id 全变 0 → List 身份冲突，直接丢掉
             let items = raw.filter { ($0.topicId ?? 0) > 0 }
@@ -275,7 +305,7 @@ struct NativeHomeView: View {
     @ObservedObject private var stats = ImageStats.shared
     @State private var showDiag = false
     @State private var searchText = ""
-    @State private var feedKind: FeedKind = .hot
+    @State private var activeTab: Int = 0
 
     var body: some View {
         NavigationView {
@@ -360,21 +390,34 @@ struct NativeHomeView: View {
             }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
-                    Picker("", selection: $feedKind) {
-                        ForEach(FeedKind.allCases) { k in
-                            Text(k.rawValue).tag(k)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(store.tabs) { tab in
+                                Button {
+                                    activeTab = tab.id
+                                    Task { await store.applyNode(tab.id) }
+                                } label: {
+                                    Text(tab.name)
+                                        .font(.system(size: 13, weight: activeTab == tab.id ? .semibold : .regular))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(
+                                            activeTab == tab.id ? Theme.accent.opacity(0.12) : Theme.chip,
+                                            in: Capsule()
+                                        )
+                                        .foregroundStyle(activeTab == tab.id ? Theme.accent : Theme.subtext)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                     }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
                     Divider().overlay(Theme.divider)
                 }
                 .background(Theme.canvas)
             }
-            .onChange(of: feedKind) { newValue in
-                Task { await store.applyKind(newValue) }
-            }
+
             .navigationTitle(store.topics.isEmpty ? "海角" : "海角 · \(store.topics.count) 条")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -397,7 +440,10 @@ struct NativeHomeView: View {
                 DiagnosticsView()
                     .preferredColorScheme(.light)
             }
-            .task { await store.loadFirstIfNeeded() }
+            .task {
+                await store.loadFirstIfNeeded()
+                await store.loadNodes()
+            }
             .refreshable { await store.reload() }
         }
         .navigationViewStyle(.stack)

@@ -12,12 +12,16 @@
 import Foundation
 import UIKit
 
-/// 顶部 Tab
-enum FeedKind: String, CaseIterable, Identifiable {
-    case hot = "热门"
-    case newest = "最新"
-    case essence = "精华"
-    var id: String { rawValue }
+/// 顶部导航项：真实站点板块（nodeId）+ 一个客户端「最新」排序
+struct FeedTab: Identifiable, Hashable {
+    let id: Int          // nodeId；0 表示客户端「最新」
+    let name: String
+}
+
+/// 站点板块（/api/topic/nodes_by_ver/v2）
+struct NodeInfo: Identifiable, Hashable {
+    let id: Int
+    let name: String
 }
 
 enum TopicAPI {
@@ -83,22 +87,20 @@ enum TopicAPI {
     }
 
     /// 直连：URLSession 打接口
-    static func fetchTopicsDirect(page: Int, cookie: String?, kind: FeedKind = .hot, keyword: String? = nil) async throws -> TopicPage {
-        // 侦察结论（tabs-probe）：只有 hot/topics 和 search 两个可用接口。
-        // · 热门 = hot/topics
-        // · 精华 = hot/topics?type=essence（实测服务端忽略了 type，返回同一批；先照发，能变就变）
-        // · 最新 = hot/topics 拉回来后按 createTime 客户端降序（没有独立接口）
-        // · 搜索 = /api/topic/search?keyword=
+    static func fetchTopicsDirect(page: Int, cookie: String?, nodeId: Int = 0, keyword: String? = nil) async throws -> TopicPage {
+        // 侦察结论（tabs-probe + nodes-probe）：
+        // · 站点真正的频道是「板块」（137 个），接口 /api/topic/nodes_by_ver/v2?ver=0
+        // · 按板块取帖子：/api/topic/hot/topics?page=N&nodeId=<id>（实测可用）
+        // · 「最新」「精华」不是板块，是首页前端 Tab，没有独立数据源
+        // · 搜索：/api/topic/search?keyword=
         let path: String
         if let kw = keyword?.trimmingCharacters(in: .whitespacesAndNewlines), !kw.isEmpty {
             let enc = kw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? kw
             path = "/api/topic/search?keyword=\(enc)&page=\(page)"
+        } else if nodeId > 0 {
+            path = "/api/topic/hot/topics?page=\(page)&nodeId=\(nodeId)"
         } else {
-            switch kind {
-            case .hot:     path = "/api/topic/hot/topics?page=\(page)"
-            case .essence: path = "/api/topic/hot/topics?page=\(page)&type=essence"
-            case .newest:  path = "/api/topic/hot/topics?page=\(page)"
-            }
+            path = "/api/topic/hot/topics?page=\(page)"
         }
         guard let url = URL(string: base + path) else {
             throw URLError(.badURL)
@@ -297,13 +299,46 @@ final class ImageGate {
 
     /// 统一入口：先直连（快），失败自动切网页通道。
     /// 两条路的错误都会带上原始响应前缀，便于定位到底卡在哪一层。
-    static func fetchTopics(page: Int, kind: FeedKind = .hot, keyword: String? = nil) async throws -> TopicPage {
+    /// 拉站点板块列表（137 个，取常用的前几个做顶部导航）
+    static func fetchNodes() async throws -> [NodeInfo] {
+        guard let url = URL(string: "\(base)/api/topic/nodes_by_ver/v2?ver=0") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 20
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
+        req.setValue("211112203214", forHTTPHeaderField: "mver")
+        let (data, _) = try await URLSession.shared.data(for: req)
+        guard let env = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let raw = env["data"] as? String,
+              let plain = decodePayload(raw),
+              let obj = try? JSONSerialization.jsonObject(with: plain) else {
+            throw APIError.envelope("板块接口异常")
+        }
+        var out: [NodeInfo] = []
+        func walk(_ any: Any) {
+            if let arr = any as? [Any] { for x in arr { walk(x) }; return }
+            guard let d = any as? [String: Any] else { return }
+            if let id = JSON.int(d["nodeId"]), let name = JSON.string(d["name"]), !name.isEmpty {
+                out.append(NodeInfo(id: id, name: name))
+            }
+            for (_, v) in d { if v is [Any] || v is [String: Any] { walk(v) } }
+        }
+        walk(obj)
+        // 去重
+        var seen = Set<Int>()
+        return out.filter { seen.insert($0.id).inserted }
+    }
+
+    static func fetchTopics(page: Int, nodeId: Int = 0, keyword: String? = nil) async throws -> TopicPage {
         // 先让隐藏 WebView 打开过首页：一来拿站点 Cookie，二来保证网页通道随时可用
         await WebBridge.shared.prepare()
         let cookie = await WebBridge.shared.cookieHeader()
         var directError: Error?
         do {
-            return try await fetchTopicsDirect(page: page, cookie: cookie, kind: kind, keyword: keyword)
+            return try await fetchTopicsDirect(page: page, cookie: cookie, nodeId: nodeId, keyword: keyword)
         } catch {
             directError = error
         }
