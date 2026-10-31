@@ -223,6 +223,7 @@ struct TopicDetailView: View {
     let onOpenWeb: (Int) -> Void
 
     @StateObject private var store = TopicDetailStore()
+    @ObservedObject private var stats = ImageStats.shared
     @State private var showPlayer = false
     @State private var subanURL: URL?
     @State private var subanBusy = false
@@ -237,7 +238,7 @@ struct TopicDetailView: View {
                 if let d = store.detail {
                     header(d)
                     if let vurl = d.videoURL {
-                        videoEntry(url: vurl, isPreview: d.videoIsPreview, cover: d.attachments.first { ($0.category ?? "").lowercased().contains("video") }?.coverUrl)
+                        videoEntry(url: vurl, isPreview: d.videoIsPreview, cover: videoCover(d))
                         if subanBusy {
                             HStack(spacing: 6) {
                                 ProgressView().scaleEffect(0.7)
@@ -268,6 +269,12 @@ struct TopicDetailView: View {
                             doorCard(door, onOpenWeb: onOpenWeb)
                         }
                     }
+                    if let s = ImageStats.shared.summary {
+                        Text(s)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.orange)
+                    }
+
                     Button {
                         onOpenWeb(topicId)
                     } label: {
@@ -372,6 +379,13 @@ struct TopicDetailView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    /// 视频封面：优先视频附件自己的 coverUrl；没有就退到帖子第一张图
+    private func videoCover(_ d: TopicDetail) -> String? {
+        if let c = d.attachments.first(where: { ($0.category ?? "").lowercased().contains("video") })?.coverUrl,
+           !c.isEmpty { return c }
+        return d.attachments.first { ($0.category ?? "").lowercased().contains("image") }?.remoteUrl
     }
 
     private func resolveViaSuban(previewURL: URL) {

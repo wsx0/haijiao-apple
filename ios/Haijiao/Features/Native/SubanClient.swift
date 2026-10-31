@@ -159,7 +159,10 @@ enum SubanClient {
         let raw = String(data: data, encoding: .utf8) ?? ""
         guard let http = resp as? HTTPURLResponse else { throw SubanError.badResponse("无响应") }
 
-        if http.statusCode == 401 { throw SubanError.http(401, "token 无效") }
+        if http.statusCode == 401 {
+            let isAnon = (token ?? "").isEmpty || token == "anon"
+            throw SubanError.http(401, isAnon ? "没填 suban token（匿名请求被拒）" : "suban token 失效")
+        }
         if http.statusCode >= 400 { throw SubanError.http(http.statusCode, String(raw.prefix(150))) }
         // 400 里可能夹带额度提示
         if raw.contains("额度") || raw.contains("订阅") || raw.contains("quota") { throw SubanError.quota }
