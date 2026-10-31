@@ -336,11 +336,13 @@ struct NativeHomeView: View {
                     .buttonStyle(PressableRowStyle())
                     .listRowSeparator(.hidden)
                     .contextMenu {
-                        if let uid = t.user?.id {
+                        // 站点没有可用的作者主页路由（/homepage、/user、/u 实测全 404），
+                        // 所以这里只提供「复制作者名」和「用网页打开帖子」。
+                        if let name = t.user?.nickname, !name.isEmpty {
                             Button {
-                                if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
+                                UIPasteboard.general.string = name
                             } label: {
-                                Label("查看作者主页", systemImage: "person.crop.circle")
+                                Label("复制作者名：\(name)", systemImage: "doc.on.doc")
                             }
                         }
                         Button {

@@ -243,6 +243,26 @@ struct TopicDetailView: View {
                     header(d)
                     if let vurl = d.videoURL {
                         videoEntry(url: vurl, isPreview: d.videoIsPreview, cover: videoCover(d))
+                    } else if d.attachments.contains(where: { ($0.category ?? "").lowercased().contains("video") }) {
+                        // 附件里有 video 但 remoteUrl 为空：服务端当前不下发地址
+                        //（实测部分帖子是这样，多半是未登录/未购买策略）
+                        VStack(spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "video.slash")
+                                Text("这个帖子带视频，但站点没有给出播放地址")
+                                    .font(.system(size: 13))
+                            }
+                            .foregroundStyle(Theme.subtext)
+                            Button {
+                                onOpenWeb(topicId)
+                            } label: {
+                                Text("用网页打开看视频")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(12)
+                        .background(Theme.placeholder, in: RoundedRectangle(cornerRadius: 8))
                         if subanBusy {
                             HStack(spacing: 6) {
                                 ProgressView().scaleEffect(0.7)
