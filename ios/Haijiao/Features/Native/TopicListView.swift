@@ -158,17 +158,22 @@ struct TopicRow: View {
                 .lineLimit(3)
                 .foregroundStyle(.primary)
 
-            let imgs = topic.displayImages
-            if !imgs.isEmpty {
+            // 站点图片是自定义编码的（#FEy + 位置相关变换），原生解不开；
+            // 与其摆一排灰块占两屏高度，不如改成文字摘要 —— 列表更紧凑也更快。
+            // 要看图：点进详情 → 底部「用网页打开」。
+            if let lite = topic.liteContent, !lite.isEmpty {
+                Text(lite)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            } else if !topic.displayImages.isEmpty {
                 HStack(spacing: 4) {
-                    ForEach(Array(imgs.enumerated()), id: \.offset) { _, item in
-                        RemoteImage(attID: item.id, url: item.url)
-                            .frame(height: 104)
-                            .frame(maxWidth: .infinity)
-                            .clipped()
-                            .cornerRadius(6)
-                    }
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 12))
+                    Text("含 \(topic.displayImages.count) 张图片")
+                        .font(.system(size: 12))
                 }
+                .foregroundStyle(.tertiary)
             }
 
             HStack(spacing: 12) {
