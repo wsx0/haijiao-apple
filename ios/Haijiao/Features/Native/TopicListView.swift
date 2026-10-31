@@ -203,52 +203,25 @@ final class TopicStore: ObservableObject {
 
 struct TopicRow: View {
     let topic: Topic
+    /// 点卡片（除作者行外）→ 详情
+    let detailDestination: AnyView
     /// 点头像/昵称 → 作者主页
     var onTapUser: ((Int) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            // 标题
-            Text(topic.title?.isEmpty == false ? (topic.title ?? "") : (topic.liteContent ?? "（无标题）"))
-                .font(.system(size: 16, weight: .semibold))
-                .lineLimit(3)
-                .foregroundStyle(Theme.text)
-                .fixedSize(horizontal: false, vertical: true)
+            // 作者行放最上面、且**不在** NavigationLink 里，这样头像点击不会被抢
+            authorRow
 
-            // 作者行：头像 + 昵称 + 角标（头像是独立按钮，不触发卡片跳转）
-            HStack(spacing: 6) {
-                Button {
-                    if let uid = topic.user?.id { onTapUser?(uid) }
-                } label: {
-                    HStack(spacing: 6) {
-                        if let head = TopicAPI.imageURL(topic.user?.avatar) {
-                            RemoteImage(url: head, maxSide: 120)
-                                .frame(width: 18, height: 18)
-                                .clipShape(Circle())
-                        } else {
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(Theme.subtext)
-                        }
-                        Text(topic.user?.nickname ?? "匿名")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Theme.subtext)
-                            .lineLimit(1)
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(topic.user?.id == nil)
+            // 标题 + 图片 + 统计整块可点（进详情）
+            NavigationLink(destination: detailDestination) {
+                VStack(alignment: .leading, spacing: 9) {
+                    Text(topic.title?.isEmpty == false ? (topic.title ?? "") : (topic.liteContent ?? "（无标题）"))
+                        .font(.system(size: 16, weight: .semibold))
+                        .lineLimit(3)
+                        .foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                if let badge = badgeText {
-                    Text(badge)
-                        .font(.system(size: 10, weight: .medium))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Theme.chip, in: RoundedRectangle(cornerRadius: 3))
-                        .foregroundStyle(Theme.accent)
-                }
-                Spacer(minLength: 0)
-            }
 
             // 图片 / 摘要
             let imgs = topic.displayImages
@@ -269,21 +242,24 @@ struct TopicRow: View {
                     .lineLimit(2)
             }
 
-            // 统计 + 标签
-            HStack(spacing: 10) {
-                Label("\(topic.commentCount ?? 0)", systemImage: "bubble.left")
-                Label("\(topic.viewCount ?? 0)", systemImage: "eye")
-                if let n = topic.node?.name, !n.isEmpty {
-                    Text(n)
-                }
-                Spacer(minLength: 0)
-                if let first = topic.tags.first?.tagName, !first.isEmpty {
-                    Text("#" + first)
-                        .lineLimit(1)
+                    // 统计 + 标签
+                    HStack(spacing: 10) {
+                        Label("\(topic.commentCount ?? 0)", systemImage: "bubble.left")
+                        Label("\(topic.viewCount ?? 0)", systemImage: "eye")
+                        if let n = topic.node?.name, !n.isEmpty {
+                            Text(n)
+                        }
+                        Spacer(minLength: 0)
+                        if let first = topic.tags.first?.tagName, !first.isEmpty {
+                            Text("#" + first)
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.subtext)
                 }
             }
-            .font(.system(size: 11))
-            .foregroundStyle(Theme.subtext)
+            .buttonStyle(.plain)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -292,6 +268,44 @@ struct TopicRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(Theme.stroke, lineWidth: 0.5)
         )
+    }
+
+    /// 作者行：头像 + 昵称 + 角标。放在 NavigationLink **外面**，
+    /// 这样头像的点击不会被卡片的导航抢走。
+    private var authorRow: some View {
+        HStack(spacing: 6) {
+            Button {
+                if let uid = topic.user?.id { onTapUser?(uid) }
+            } label: {
+                HStack(spacing: 6) {
+                    if let head = TopicAPI.imageURL(topic.user?.avatar) {
+                        RemoteImage(url: head, maxSide: 120)
+                            .frame(width: 18, height: 18)
+                            .clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Theme.subtext)
+                    }
+                    Text(topic.user?.nickname ?? "匿名")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.subtext)
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(topic.user?.id == nil)
+
+            if let badge = badgeText {
+                Text(badge)
+                    .font(.system(size: 10, weight: .medium))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Theme.chip, in: RoundedRectangle(cornerRadius: 3))
+                    .foregroundStyle(Theme.accent)
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     /// 角标（Topic 模型里没有 money_type，用 hasVideo + 标题关键词近似网页版角标）
@@ -318,37 +332,32 @@ struct NativeHomeView: View {
     @State private var searchText = ""
     @State private var activeTab: Int = 0
     /// 点卡片时用导航值打开详情（不再靠 NavigationLink 包住整张卡片，否则头像按钮会被吃掉）
-    @State private var detailTarget: Int?
+
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 ForEach(store.topics) { t in
-                    // 不用 NavigationLink 包卡片：List 里 NavigationLink 会吃掉内部的 Button，
-                    // 导致点作者头像没反应（一直进详情）。改成父级 onTapGesture + 子级 Button，
-                    // 这样头像的 Button 优先响应，其余区域走卡片点击。
-                    TopicRow(topic: t, onTapUser: { uid in
-                        if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
-                    })
-                        .contentShape(Rectangle())
-                        .onTapGesture { detailTarget = t.id }
-                        .listRowSeparator(.hidden)
-                        .onAppear {
-                            if t.id == store.topics.last?.id {
-                                Task { await store.loadMore() }
-                            }
-                        }
-                }
-                .navigationDestination(isPresented: Binding(
-                    get: { detailTarget != nil },
-                    set: { if !$0 { detailTarget = nil } }
-                )) {
-                    if let id = detailTarget {
-                        TopicDetailView(topicId: id, onOpenWeb: { tid in
-                            onOpen(TopicAPI.detailURL(topicId: tid))
-                        }, onOpenUser: { uid in
+                    // 结构：作者行在 NavigationLink 外面，标题/图片/统计在 NavigationLink 里面。
+                    // 这样「点卡片进详情」和「点头像进主页」互不抢夺，也不依赖手势优先级。
+                    TopicRow(
+                        topic: t,
+                        detailDestination: AnyView(
+                            TopicDetailView(topicId: t.id, onOpenWeb: { tid in
+                                onOpen(TopicAPI.detailURL(topicId: tid))
+                            }, onOpenUser: { uid in
+                                if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
+                            })
+                        ),
+                        onTapUser: { uid in
                             if let u = TopicAPI.homepageURL(userId: uid) { onOpen(u) }
-                        })
+                        }
+                    )
+                    .listRowSeparator(.hidden)
+                    .onAppear {
+                        if t.id == store.topics.last?.id {
+                            Task { await store.loadMore() }
+                        }
                     }
                 }
 
@@ -471,7 +480,7 @@ struct NativeHomeView: View {
             }
             .refreshable { await store.reload() }
         }
-        .navigationViewStyle(.stack)
+
         .preferredColorScheme(.light)
     }
 }
