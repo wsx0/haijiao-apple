@@ -43,6 +43,7 @@ on:
       - 'scripts/js-node-probe.mjs'
       - 'scripts/verify-node-feed.mjs'
       - 'scripts/author-probe.mjs'
+      - 'scripts/route-probe.mjs'
       - 'scripts/sf-list-probe.mjs'
       - 'scripts/kitty-probe.mjs'
       - 'scripts/kitty-verify.mjs'
@@ -170,6 +171,9 @@ jobs:
       - name: 作者主页侦察
         run: node scripts/author-probe.mjs
 
+      - name: 路由与视频形态
+        run: node scripts/route-probe.mjs
+
       - name: Kitty猫脚本分析
         run: node scripts/kitty-probe.mjs
 
@@ -227,6 +231,7 @@ jobs:
             out34/
             out35/
             out36/
+            out37/
             out28/
             out29/
           if-no-files-found: warn
