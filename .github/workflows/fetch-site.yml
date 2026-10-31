@@ -18,6 +18,7 @@ on:
       - 'scripts/tti-probe.mjs'
       - 'scripts/api-probe.mjs'
       - 'scripts/detail-probe.mjs'
+      - 'scripts/detail2-probe.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -64,6 +65,9 @@ jobs:
       - name: 详情路由验证
         run: node scripts/detail-probe.mjs
 
+      - name: 详情接口契约（原生化用）
+        run: node scripts/detail2-probe.mjs
+
       - name: 摘要
         if: always()
         run: |
@@ -72,7 +76,7 @@ jobs:
           echo "--- 浮层数量 ---"
           for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
           echo "--- A/B 结果 ---"
-          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ || true
+          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ || true
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -87,5 +91,6 @@ jobs:
             out6/
             out7/
             out8/
+            out9/
           if-no-files-found: warn
           retention-days: 14
