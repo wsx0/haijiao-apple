@@ -40,6 +40,7 @@ on:
       - 'scripts/home-probe.mjs'
       - 'scripts/nodes-probe.mjs'
       - 'scripts/node-filter-probe.mjs'
+      - 'scripts/js-node-probe.mjs'
       - 'scripts/sf-list-probe.mjs'
       - 'scripts/kitty-probe.mjs'
       - 'scripts/kitty-verify.mjs'
@@ -158,6 +159,9 @@ jobs:
       - name: nodeId 是否真生效
         run: node scripts/node-filter-probe.mjs
 
+      - name: JS 里的板块接口
+        run: node scripts/js-node-probe.mjs
+
       - name: Kitty猫脚本分析
         run: node scripts/kitty-probe.mjs
 
@@ -212,6 +216,7 @@ jobs:
             out31/
             out32/
             out33/
+            out34/
             out28/
             out29/
           if-no-files-found: warn
