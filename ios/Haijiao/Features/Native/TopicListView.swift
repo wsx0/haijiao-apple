@@ -308,8 +308,13 @@ struct NativeHomeView: View {
     @State private var showDiag = false
     @State private var searchText = ""
     @State private var activeTab: Int = 0
-    /// 点卡片时用导航值打开详情（不再靠 NavigationLink 包住整张卡片，否则头像按钮会被吃掉）
 
+    /// 显示在标题栏，方便一眼确认装的是哪一版
+    private var appVersion: String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "v\(v)(\(b))"
+    }
 
     var body: some View {
         NavigationView {
@@ -442,7 +447,7 @@ struct NativeHomeView: View {
                 .background(Theme.canvas)
             }
 
-            .navigationTitle(store.topics.isEmpty ? "海角" : "海角 · \(store.topics.count) 条")
+            .navigationTitle(store.topics.isEmpty ? "海角 \(appVersion)" : "海角 \(appVersion) · \(store.topics.count) 条")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
