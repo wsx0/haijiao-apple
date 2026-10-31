@@ -111,7 +111,22 @@ final class TopicStore: ObservableObject {
             }
             errorText = nil
         } catch {
-            errorText = "加载失败：\(error.localizedDescription)"
+            let msg = "加载失败：\(error.localizedDescription)"
+            errorText = msg
+            // 同时落盘：Documents 已开文件共享，可用「文件」App 直接导出发给我
+            do {
+                let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                let url = dir.appendingPathComponent("hj_last_error.txt")
+                let stamp = ISO8601DateFormatter().string(from: Date())
+                let body = "[\(stamp)] page=\(nextPage)\n\(msg)\n\n"
+                if let handle = try? FileHandle(forWritingTo: url) {
+                    handle.seekToEndOfFile()
+                    handle.write(body.data(using: .utf8) ?? Data())
+                    try? handle.close()
+                } else {
+                    try body.write(to: url, atomically: true, encoding: .utf8)
+                }
+            } catch { }
         }
     }
 }

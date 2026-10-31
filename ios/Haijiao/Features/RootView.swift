@@ -13,7 +13,7 @@ import SwiftUI
 import WebKit
 
 struct RootView: View {
-    @AppStorage("hj.mode") private var mode: String = "native"
+    @AppStorage("hj.mode2") private var mode: String = "native"
     @State private var webURL: URL = HJWeb.home
 
     var body: some View {
