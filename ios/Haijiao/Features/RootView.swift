@@ -39,6 +39,9 @@ struct RootView: View {
                 )
             }
         }
+        // 原站是白底浅色主题，整个 App 强制浅色：
+        // 否则用户系统是深色时，正文用的 .primary 会变成白字，压在白色背景上就"文字不见了"
+        .preferredColorScheme(.light)
     }
 }
 

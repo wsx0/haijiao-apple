@@ -246,7 +246,7 @@ struct TopicDetailView: View {
                                 ProgressView().scaleEffect(0.7)
                                 Text("正在通过 suban 解析完整版…")
                                     .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Theme.subtext)
                             }
                         }
                     }
@@ -259,7 +259,7 @@ struct TopicDetailView: View {
                             Text(t)
                                 .font(.system(size: 16))
                                 .lineSpacing(5)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(Theme.text)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         case .image(let u):
                             // 按原始比例完整显示（固定高度 + clipped 会把竖图裁成一条）。
@@ -333,6 +333,7 @@ struct TopicDetailView: View {
     private func header(_ d: TopicDetail) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(d.title ?? "（无标题）")
+                .foregroundStyle(Theme.text)
                 .font(.system(size: 20, weight: .bold))
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
@@ -358,9 +359,9 @@ struct TopicDetailView: View {
                 if let c = d.commentCountStr { Label(c, systemImage: "bubble.left") }
             }
             .font(.system(size: 12))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.subtext)
             if let t = d.createTime, !t.isEmpty {
-                Text(t).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(t).font(.system(size: 11)).foregroundStyle(Theme.subtext)
             }
             Divider()
         }
@@ -501,7 +502,7 @@ struct TopicDetailView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(2)
                     if let t = door.description {
-                        Text(t).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
+                        Text(t).font(.system(size: 12)).foregroundStyle(Theme.subtext).lineLimit(2)
                     }
                 }
                 Spacer(minLength: 0)

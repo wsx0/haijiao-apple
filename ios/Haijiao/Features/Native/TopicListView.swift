@@ -42,7 +42,7 @@ struct RemoteImage: View {
             } else {
                 ZStack {
                     Theme.placeholder
-                    if failed { Image(systemName: "photo").foregroundStyle(.secondary) }
+                    if failed { Image(systemName: "photo").foregroundStyle(Theme.subtext) }
                 }
             }
         }
