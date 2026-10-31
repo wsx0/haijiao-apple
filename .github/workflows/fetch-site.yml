@@ -32,6 +32,7 @@ on:
       - 'scripts/img7-probe.mjs'
       - 'scripts/img8-probe.mjs'
       - 'scripts/video-probe.mjs'
+      - 'scripts/video2-probe.mjs'
   workflow_dispatch: {}
 
 permissions:
@@ -120,6 +121,9 @@ jobs:
       - name: 视频 HLS 侦察
         run: node scripts/video-probe.mjs
 
+      - name: AES key 可访问性
+        run: node scripts/video2-probe.mjs
+
       - name: 摘要
         if: always()
         run: |
@@ -128,7 +132,7 @@ jobs:
           echo "--- 浮层数量 ---"
           for f in out/overlays-*.json; do echo "$f: $(grep -c '"path"' "$f" 2>/dev/null || echo 0)"; done
           echo "--- A/B 结果 ---"
-          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ out10/ out11/ out12/ out13/ out14/ out15/ out16/ out17/ out18/ out19/ out20/ out21/ out22/ || true
+          ls -la out2/ out3/ out4/ out5/ out6/ out7/ out8/ out9/ out10/ out11/ out12/ out13/ out14/ out15/ out16/ out17/ out18/ out19/ out20/ out21/ out22/ out23/ || true
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -157,5 +161,6 @@ jobs:
             out20/
             out21/
             out22/
+            out23/
           if-no-files-found: warn
           retention-days: 14
