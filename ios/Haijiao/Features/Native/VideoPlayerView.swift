@@ -22,7 +22,8 @@ struct VideoPlayerView: View {
     @State private var failed = false
     /// 默认走 WebKit：真机上媒体 CDN 用原生栈拿不到，网页内核能拿到。
     /// 只有显式验证过原生可用（video.nativeOK）才用 AVPlayer。
-    @State private var useWebKit: Bool = !UserDefaults.standard.bool(forKey: "video.nativeOK")
+    /// 诊断页已证明 m3u8/key/ts 全部 200，所以先走 AVPlayer；播不了再一键切 WebKit。
+    @State private var useWebKit = false
 
     var body: some View {
         ZStack {

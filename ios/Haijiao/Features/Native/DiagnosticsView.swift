@@ -40,6 +40,7 @@ final class DiagModel: ObservableObject {
         .init(name: "⑤ AES key"),
         .init(name: "⑥ ts 分片"),
         .init(name: "⑦ 隐藏 WebView 就绪"),
+        .init(name: "⑧ 图片解码结果"),
     ]
 
 
@@ -81,6 +82,17 @@ final class DiagModel: ObservableObject {
             await WebBridge.shared.prepare(timeout: 15)
             let ok = WebBridge.shared.isReady
             return (ok, ok ? "已加载 haijiao.com" : "加载失败/超时", 0)
+        }
+        // ⑧ 解码：拿到文本后走真正的解码器，看能不能出图
+        await test(7) {
+            let raw = try await WebBridge.shared.fetchRaw(path: diagSampleImage.absoluteString)
+            let start = Date()
+            guard let img = SiteImage.image(from: raw) else {
+                let head = String(raw.prefix(24)).replacingOccurrences(of: "\n", with: " ")
+                return (false, "解码失败 head=\(head)", raw.count)
+            }
+            let ms = Int(Date().timeIntervalSince(start) * 1000)
+            return (true, "解码成功 \(Int(img.size.width))×\(Int(img.size.height)) \(ms)ms", raw.count)
         }
     }
 

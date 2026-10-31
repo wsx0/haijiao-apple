@@ -144,7 +144,7 @@ final class ImageGate {
     static let shared = ImageGate()
     private var inFlight = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
-    private let limit = 6
+    private let limit = 10
 
     func acquire() async {
         if inFlight < limit { inFlight += 1; return }
@@ -192,9 +192,10 @@ final class ImageGate {
     }
 
     static func fetchImageText(_ url: URL) async -> String? {
-        // ① 原生 URLSession
+        // 诊断页实测：原生 URLSession 拿这张图是 200 + 257KB，所以 WebKit 兜底是多余的
+        // （而且它把主线程压满，反而拖慢整页加载）。这里只保留原生一条路。
         if let t = await directImageText(url) { return t }
-        // ② 失败 → 用隐藏 WebView 在页面里 fetch（同源/同 DNS/同 TLS，网页版能拿到的它就能拿到）
+        // 真失败才退到页面内 fetch（默认不会走到）
         if let t = try? await WebBridge.shared.fetchRaw(path: url.absoluteString), !t.isEmpty {
             return t
         }
