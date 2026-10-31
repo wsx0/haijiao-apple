@@ -15,24 +15,25 @@ const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/6
            '(KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const BASE = 'https://haijiao.com';
 
+// 注意：JSON 接口用的是**标准 base64**（三层），打乱表那套只用于图片（SiteImage）。
 const decodeLayers = payload => {
-  const TABLE = 'ABCD*EFGHIJKLMNOPQRSTUVWX#YZabcdefghijklmnopqrstuvwxyz1234567890';
-  const rev = new Map([...TABLE].map((c, i) => [c, i]));
-  let cur = String(payload);
-  for (let round = 0; round < 4; round++) {
-    const src = [...cur].filter(c => /[A-Za-z0-9*#]/.test(c));
-    const out = [];
-    for (let i = 0; i + 3 < src.length; i += 4) {
-      const s = rev.get(src[i]), n = rev.get(src[i + 1]), r = rev.get(src[i + 2]), u = rev.get(src[i + 3]);
-      if (s === undefined || n === undefined || r === undefined || u === undefined) continue;
-      out.push((s << 2 | n >> 4) & 0xFF);
-      out.push(((15 & n) << 4 | r >> 2) & 0xFF);
-      out.push(((3 & r) << 6 | u) & 0xFF);
-    }
-    const text = Buffer.from(out).toString('latin1');
-    try { return JSON.parse(text); } catch (e) { cur = text; }
+  let cur = String(payload).trim();
+  for (let i = 0; i < 6; i++) {
+    const buf = Buffer.from(cur, 'base64');
+    const text = buf.toString('utf8');
+    try { return JSON.parse(text); } catch (e) { cur = text.trim(); }
   }
   return null;
+};
+
+// 兜底样本：前几轮抓到的真实视频附件（万一系列接口拿不到）
+const FALLBACK_VIDEO = {
+  id: 14330811,
+  remoteUrl: 'https://ts10.hj260302818.top/hjstore/video/20261023/105f7d1d12d6c3854b57940db853d59b/565690_i_preview.m3u8',
+  category: 'video',
+  status: 1,
+  coverUrl: 'https://pic.hj260302818.top/hjstore/video/20261023/105f7d1d12d6c3854b57940db853d59b/565690.jpeg.txt',
+  video_time_length: 782,
 };
 
 async function getJSON(pathname) {
@@ -55,14 +56,20 @@ async function fetchText(url, referer) {
 }
 
 async function main() {
-  // 1) 找一个视频帖
-  const list = await getJSON('/api/topic/hot/topics?page=1');
+  // 1) 找一个视频帖（API 拿不到就用兜底样本）
   let topic = null, video = null;
-  for (const t of (list.results || [])) {
-    const v = (t.attachments || []).find(a => (a.category || '').toLowerCase().includes('video') && a.remoteUrl);
-    if (v) { topic = t; video = v; break; }
+  try {
+    const list = await getJSON('/api/topic/hot/topics?page=1');
+    for (const t of ((list && list.results) || [])) {
+      const v = (t.attachments || []).find(a => (a.category || '').toLowerCase().includes('video') && a.remoteUrl);
+      if (v) { topic = t; video = v; break; }
+    }
+  } catch (e) { console.log('列表接口失败:', e.message); }
+  if (!video) {
+    console.log('改用兜底样本（前几轮抓到的真实视频附件）');
+    topic = { topicId: 0, title: '(fallback)' };
+    video = FALLBACK_VIDEO;
   }
-  if (!video) { console.log('列表里没找到视频附件'); return; }
   console.log('帖子:', topic.topicId, String(topic.title).slice(0, 24));
   console.log('视频附件:', JSON.stringify(video));
 
