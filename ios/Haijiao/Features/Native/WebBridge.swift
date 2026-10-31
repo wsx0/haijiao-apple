@@ -22,25 +22,25 @@ final class WebBridge: NSObject, WKNavigationDelegate {
     /// WebKit 只有一个页面，evaluateJavaScript 全在主线程排队。
     /// 并发太高会把主线程压满、导致轮询超时（图片「只加载一部分」就是这么来的）。
     private var inFlight = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var slotWaiters: [CheckedContinuation<Void, Never>] = []
 
     @MainActor
     private func acquireSlot() async {
         if inFlight < 2 { inFlight += 1; return }
-        await withCheckedContinuation { c in waiters.append(c) }
+        await withCheckedContinuation { c in slotWaiters.append(c) }
         inFlight += 1
     }
 
     @MainActor
     private func releaseSlot() {
         inFlight -= 1
-        if let c = waiters.first { waiters.removeFirst(); c.resume() }
+        if let c = slotWaiters.first { slotWaiters.removeFirst(); c.resume() }
     }
 
     private var web: WKWebView?
     private var ready = false
     private var loading = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var slotWaiters: [CheckedContinuation<Void, Never>] = []
 
     private func makeWebView() -> WKWebView {
         let cfg = WKWebViewConfiguration()
