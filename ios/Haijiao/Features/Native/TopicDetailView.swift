@@ -224,6 +224,12 @@ struct TopicDetailView: View {
 
     @StateObject private var store = TopicDetailStore()
     @State private var showPlayer = false
+    @State private var subanURL: URL?
+    @State private var subanBusy = false
+    @State private var subanError: String?
+    @State private var showTokenPrompt = false
+    @State private var tokenInput: String = UserDefaults.standard.string(forKey: "suban.token") ?? ""
+    @State private var playFromSuban = false
 
     var body: some View {
         ScrollView {
@@ -232,6 +238,14 @@ struct TopicDetailView: View {
                     header(d)
                     if let vurl = d.videoURL {
                         videoEntry(url: vurl, isPreview: d.videoIsPreview, cover: d.attachments.first { ($0.category ?? "").lowercased().contains("video") }?.coverUrl)
+                        if subanBusy {
+                            HStack(spacing: 6) {
+                                ProgressView().scaleEffect(0.7)
+                                Text("正在通过 suban 解析完整版…")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     if d.isPaid {
                         paidHint()
@@ -273,10 +287,20 @@ struct TopicDetailView: View {
         }
         .navigationTitle("详情")
         .sheet(isPresented: $showPlayer) {
-            if let d = store.detail, let vurl = d.videoURL {
-                VideoPlayerView(url: vurl, title: d.title ?? "", isPreview: d.videoIsPreview)
+            if let d = store.detail, let vurl = (playFromSuban ? subanURL : d.videoURL) {
+                VideoPlayerView(url: vurl, title: d.title ?? "", isPreview: !playFromSuban && d.videoIsPreview)
                     .preferredColorScheme(.dark)
             }
+        }
+        .alert("suban 解析需要 token", isPresented: $showTokenPrompt) {
+            TextField("粘贴 suban token", text: $tokenInput)
+            Button("保存并重试") {
+                UserDefaults.standard.set(tokenInput.trimmingCharacters(in: .whitespacesAndNewlines), forKey: "suban.token")
+                if let u = store.detail?.videoURL { resolveViaSuban(previewURL: u) }
+            }
+            Button("只播预览", role: .cancel) { showPlayer = true }
+        } message: {
+            Text(subanError ?? "未登录只有极少试用额度。到 suban.vip 注册后把 token 填进来。")
         }
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.load(topicId: topicId) }
@@ -305,7 +329,12 @@ struct TopicDetailView: View {
 
     private func videoEntry(url: URL, isPreview: Bool, cover: String?) -> some View {
         Button {
-            showPlayer = true
+            if isPreview {
+                // 预览片段：先由 suban 解析完整版，失败再退回播预览
+                resolveViaSuban(previewURL: url)
+            } else {
+                showPlayer = true
+            }
         } label: {
             ZStack {
                 if let u = TopicAPI.imageURL(cover) {
@@ -337,6 +366,41 @@ struct TopicDetailView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private func resolveViaSuban(previewURL: URL) {
+        guard let d = store.detail, let tid = d.topicId,
+              let att = d.videoAttachment, let aid = att.id else {
+            showPlayer = true
+            return
+        }
+        let token = UserDefaults.standard.string(forKey: "suban.token")
+        subanBusy = true
+        subanError = nil
+        Task {
+            do {
+                let u = try await SubanClient.decodeStream(topicId: tid, attachmentId: aid, token: token)
+                await MainActor.run {
+                    subanBusy = false
+                    subanURL = u
+                    playFromSuban = true
+                    showPlayer = true
+                }
+            } catch {
+                await MainActor.run {
+                    subanBusy = false
+                    let msg = error.localizedDescription
+                    subanError = msg
+                    // 额度不足 / 未登录 / token 失效 → 让用户填 token；其它错误直接播预览
+                    let needToken = msg.contains("额度") || msg.contains("订阅") || msg.contains("401")
+                    if needToken || (token ?? "").isEmpty {
+                        showTokenPrompt = true
+                    } else {
+                        showPlayer = true
+                    }
+                }
+            }
+        }
     }
 
     private func paidHint() -> some View {
