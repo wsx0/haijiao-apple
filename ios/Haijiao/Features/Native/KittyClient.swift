@@ -36,15 +36,77 @@ enum KittyClient {
 
     static let host = "https://www.kittymao.xyz/api"
 
+    /// 卡密换 token（脚本里的 checkPasscode）。
+    /// 注意：用户在网页上「领取」拿到的是**卡密**，不是 token；
+    /// token 要 POST /hj/getPermission 换回来，之后才能当 kthjau 用。
+    static func exchangeToken(cardCode: String) async throws -> String {
+        let card = cardCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !card.isEmpty else { throw KittyError.noPasscode }
+        guard let url = URL(string: "\(host)/hj/getPermission") else { throw KittyError.badResponse("URL") }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 20
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("https://www.kittymao.xyz", forHTTPHeaderField: "Origin")
+        req.setValue("https://www.kittymao.xyz/script/18", forHTTPHeaderField: "Referer")
+        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+                     forHTTPHeaderField: "User-Agent")
+        // 与脚本完全一致的三个字段
+        let payload: [String: Any] = [
+            "version": "1.2.3",
+            "cardContent": card,
+            "nickname": "hj",
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
+            throw KittyError.http(http.statusCode, String(raw.prefix(160)))
+        }
+        guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw KittyError.badResponse(String(raw.prefix(160)))
+        }
+        if let ok = obj["success"] as? Bool, ok == false {
+            let msg = (obj["message"] as? String) ?? "卡密校验失败"
+            throw KittyError.badResponse(msg)
+        }
+        // 响应里 token 可能叫 token / data.token
+        if let t = obj["token"] as? String, !t.isEmpty { return t }
+        if let d = obj["data"] as? [String: Any], let t = d["token"] as? String, !t.isEmpty { return t }
+        throw KittyError.badResponse("没拿到 token：" + String(raw.prefix(140)))
+    }
+
     /// 解析一个视频附件，返回可播地址
     static func decodeStream(topicId: Int, attachmentId: Int, passcode: String) async throws -> URL {
-        let code = passcode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !code.isEmpty else { throw KittyError.noPasscode }
+        // 传进来的既可能是卡密也可能是已换好的 token：长度短且没缓存时就先换
+        var token = passcode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { throw KittyError.noPasscode }
 
+        if let cached = UserDefaults.standard.string(forKey: "kitty.token"), !cached.isEmpty {
+            token = cached
+        } else {
+            token = try await exchangeToken(cardCode: passcode)
+            UserDefaults.standard.set(token, forKey: "kitty.token")
+        }
+
+        do {
+            return try await movieInfo(topicId: topicId, attachmentId: attachmentId, kthjau: token)
+        } catch {
+            // token 可能过期：清掉缓存，用卡密重换一次
+            UserDefaults.standard.removeObject(forKey: "kitty.token")
+            let fresh = try await exchangeToken(cardCode: passcode)
+            UserDefaults.standard.set(fresh, forKey: "kitty.token")
+            return try await movieInfo(topicId: topicId, attachmentId: attachmentId, kthjau: fresh)
+        }
+    }
+
+    private static func movieInfo(topicId: Int, attachmentId: Int, kthjau: String) async throws -> URL {
         let ts = String(Int(Date().timeIntervalSince1970 * 1000))
         var comp = URLComponents(string: "\(host)/hj/movieInfo")
         comp?.queryItems = [
-            URLQueryItem(name: "kthjau", value: code),
+            URLQueryItem(name: "kthjau", value: kthjau),
             URLQueryItem(name: "isPhone", value: "true"),
             URLQueryItem(name: "t", value: ts),
         ]
@@ -78,22 +140,10 @@ enum KittyClient {
         throw KittyError.badResponse(String(raw.prefix(160)))
     }
 
-    /// 校验口令是否有效
-    static func checkPasscode(_ passcode: String) async -> Bool {
-        let code = passcode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !code.isEmpty else { return false }
-        guard var comp = URLComponents(string: "\(host)/hj/getPermission") else { return false }
-        comp.queryItems = [URLQueryItem(name: "kthjau", value: code)]
-        guard let url = comp.url else { return false }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 15
-        req.setValue("https://haijiao.com/", forHTTPHeaderField: "Origin")
-        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return false }
-        let s = String(data: data, encoding: .utf8) ?? ""
-        // 只要响应里出现明确的成功标志就算过；口径宽松一点，交给后续 movieInfo 判真伪
-        return s.contains("\"code\":0") || s.contains("\"success\":true") || s.contains("\"ok\":true") || s.contains("true")
+    /// 校验卡密（内部就是换一次 token）
+    static func checkPasscode(_ card: String) async -> Bool {
+        (try? await exchangeToken(cardCode: card)) != nil
     }
-
     // MARK: - 从任意 JSON 里捞媒体地址
 
     private static func firstMediaURL(in raw: String) -> URL? {
