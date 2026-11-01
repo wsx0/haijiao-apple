@@ -35,8 +35,21 @@ enum TopicAPI {
     /// 层数可能随接口/版本变化，所以不写死：一直解到「解出来是合法 JSON」为止，最多 6 层。
     static func decodePayload(_ payload: String) -> Data? {
         var current = payload.trimmingCharacters(in: .whitespacesAndNewlines)
-        for _ in 0..<6 {
-            guard let bytes = Data(base64Encoded: current, options: .ignoreUnknownCharacters),
+        // 登录等接口的 data 可能是「带换行/长度非 4 倍数」的 base64，
+        // Data(base64Encoded:) 遇到这种会直接返回 nil，所以先规整再解。
+        for _ in 0..<10 {
+            var cleaned = current
+                .replacingOccurrences(of: "\n", with: "")
+                .replacingOccurrences(of: "\r", with: "")
+                .replacingOccurrences(of: " ", with: "")
+                .replacingOccurrences(of: "\t", with: "")
+            // URL-safe base64 先转回来
+            cleaned = cleaned
+                .replacingOccurrences(of: "-", with: "+")
+                .replacingOccurrences(of: "_", with: "/")
+            // 补齐到 4 的倍数
+            while cleaned.count % 4 != 0 { cleaned += "=" }
+            guard let bytes = Data(base64Encoded: cleaned, options: .ignoreUnknownCharacters),
                   !bytes.isEmpty else {
                 return nil
             }
@@ -337,7 +350,26 @@ final class ImageGate {
         let token = find(["token", "userToken", "user_token", "accessToken", "x-user-token"])
         let uidStr = find(["userId", "user_id", "id", "uid", "x-user-id"])
         guard let tk = token, let uidS = uidStr, let uid = Int(uidS) else {
-            throw APIError.envelope("登录成功但没解析出 token/uid：" + String(raw.prefix(200)))
+            // 解析失败时把「解码后的 payload」也带出来，方便看真实字段名
+            let payloadDesc: String
+            if let d = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+               let s = String(data: d, encoding: .utf8) {
+                payloadDesc = String(s.prefix(400))
+            } else {
+                payloadDesc = "(payload 不可序列化)"
+            }
+            let decodedNote: String
+            if let s = env["data"] as? String {
+                if let plain = decodePayload(s),
+                   let txt = String(data: plain, encoding: .utf8) {
+                    decodedNote = "解码后：" + String(txt.prefix(300))
+                } else {
+                    decodedNote = "解码失败，data 前 60 字符：" + String(s.prefix(60))
+                }
+            } else {
+                decodedNote = "data 不是字符串（\(type(of: env["data"]))）"
+            }
+            throw APIError.envelope("登录成功但没解析出 token/uid。\n\(decodedNote)\npayload：\(payloadDesc)")
         }
         return (uid, tk)
     }
