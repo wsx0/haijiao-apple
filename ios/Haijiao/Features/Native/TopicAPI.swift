@@ -381,6 +381,63 @@ final class ImageGate {
         return (uid, tk)
     }
 
+    /// 取视频播放地址：`GET /api/video/<attachmentId>`（实测未登录返回「请先登录」）
+    /// 响应结构未知，从 JSON 里递归找形如 .m3u8 的字符串，兼容多种字段名。
+    static func fetchVideoURL(attachmentId: Int) async throws -> URL? {
+        guard isLoggedIn else { throw APIError.envelope("视频地址需要登录后才能获取") }
+        guard let url = URL(string: "\(base)/api/video/\(attachmentId)") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 20
+        req.setValue(ua, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        req.setValue("\(base)/home", forHTTPHeaderField: "Referer")
+        req.setValue("211112203214", forHTTPHeaderField: "mver")
+        req.setValue(authUid ?? "null", forHTTPHeaderField: "x-user-id")
+        req.setValue(authToken ?? "null", forHTTPHeaderField: "x-user-token")
+
+        let (data, _) = try await URLSession.shared.data(for: req)
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        guard let env = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw APIError.envelope("视频接口响应非 JSON：" + String(raw.prefix(100)))
+        }
+        if let ok = env["success"] as? Bool, ok == false {
+            throw APIError.envelope((env["message"] as? String) ?? "视频接口失败")
+        }
+        var payload: Any = env
+        if let s = env["data"] as? String, let plain = decodePayload(s),
+           let obj = try? JSONSerialization.jsonObject(with: plain) {
+            payload = obj
+        } else if let d = env["data"] {
+            payload = d
+        }
+        if let u = findM3U8(in: payload) { return u }
+        // 没找到 m3u8 就把结构抛出来，便于定位
+        let desc = String((try? JSONSerialization.data(withJSONObject: payload)).flatMap { String(data: $0, encoding: .utf8) }?.prefix(300) ?? "")
+        throw APIError.envelope("视频接口没给出 m3u8，结构：" + desc)
+    }
+
+    /// 递归找 JSON 里第一个 .m3u8 地址
+    private static func findM3U8(in any: Any, depth: Int = 0) -> URL? {
+        if depth > 8 { return nil }
+        if let s = any as? String {
+            let clean = s.replacingOccurrences(of: "\\/", with: "/")
+            if clean.contains(".m3u8"), let u = URL(string: clean) { return u }
+            return nil
+        }
+        if let arr = any as? [Any] {
+            for x in arr { if let u = findM3U8(in: x, depth: depth + 1) { return u } }
+            return nil
+        }
+        if let d = any as? [String: Any] {
+            // 优先看常见字段
+            for k in ["url", "m3u8", "src", "videoUrl", "video_url", "playUrl", "play_url", "remoteUrl"] {
+                if let v = d[k], let u = findM3U8(in: v, depth: depth + 1) { return u }
+            }
+            for (_, v) in d { if let u = findM3U8(in: v, depth: depth + 1) { return u } }
+        }
+        return nil
+    }
+
     /// 作者主页（站点路由 /homepage/<userId>，见站点 JS 的 LAYOUT_PAGE_PREFIXES）
     static func homepageURL(userId: Int) -> URL? {
         URL(string: "\(base)/homepage/\(userId)")

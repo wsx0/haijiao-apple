@@ -235,6 +235,9 @@ struct TopicDetailView: View {
     @State private var tokenInput: String = UserDefaults.standard.string(forKey: "suban.token") ?? ""
     @State private var playFromSuban = false
     @State private var preview: ImagePreview?
+    @State private var videoFallbackBusy = false
+    @State private var videoFallbackError: String?
+    @State private var showLoginPrompt = false
 
     var body: some View {
         ScrollView {
@@ -243,7 +246,9 @@ struct TopicDetailView: View {
                     header(d)
                     if let vurl = d.videoURL {
                         videoEntry(url: vurl, isPreview: d.videoIsPreview, cover: videoCover(d))
-                    } else if d.attachments.contains(where: { ($0.category ?? "").lowercased().contains("video") }) {
+                    } else if let vatt = d.attachments.first(where: { ($0.category ?? "").lowercased().contains("video") }) {
+                        // 详情接口没给 remoteUrl：登录态下改问 /api/video/<attachmentId>
+                        videoFallbackEntry(vatt)
                         // 附件里有 video 但 remoteUrl 为空：服务端当前不下发地址
                         //（实测部分帖子是这样，多半是未登录/未购买策略）
                         VStack(spacing: 6) {
@@ -326,6 +331,11 @@ struct TopicDetailView: View {
             .padding(16)
         }
         .background(Theme.canvas)
+        .sheet(isPresented: $showLoginPrompt) {
+            LoginView { _, _ in
+                if let tid = store.detail?.topicId { Task { await store.load(topicId: tid) } }
+            }
+        }
         .fullScreenCover(item: $preview) { p in
             ImageViewer(url: p.url, title: p.title)
         }
@@ -408,6 +418,79 @@ struct TopicDetailView: View {
         let login = TopicAPI.isLoggedIn ? "已登录" : "未登录"
         let cnt = d.attachments.count
         return "video 附件 \(vids.count) 个（remoteUrl 长度 \(lens.isEmpty ? "-" : lens)）· 附件总数 \(cnt) · \(login)"
+    }
+
+    /// 详情里没有 remoteUrl 时的兜底：向 /api/video/<attachmentId> 要地址
+    @ViewBuilder
+    private func videoFallbackEntry(_ att: TopicAttachment) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: TopicAPI.isLoggedIn ? "video" : "lock.fill")
+                Text(TopicAPI.isLoggedIn
+                     ? "这个帖子的视频地址要从接口单独取"
+                     : "视频地址需要先登录")
+                    .font(.system(size: 13))
+            }
+            .foregroundStyle(Theme.subtext)
+
+            if !TopicAPI.isLoggedIn {
+                Button {
+                    showLoginPrompt = true
+                } label: {
+                    Text("去登录")
+                        .font(.system(size: 13, weight: .medium))
+                }
+            } else if let aid = att.id {
+                if videoFallbackBusy {
+                    ProgressView().scaleEffect(0.7)
+                } else {
+                    Button {
+                        Task { await loadVideoFallback(aid: aid) }
+                    } label: {
+                        Text("获取视频地址")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                }
+            }
+
+            if let e = videoFallbackError {
+                Text(e)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.red)
+                    .textSelection(.enabled)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(12)
+        .background(Theme.placeholder, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func loadVideoFallback(aid: Int) async {
+        videoFallbackBusy = true
+        videoFallbackError = nil
+        defer { videoFallbackBusy = false }
+        do {
+            guard let u = try await TopicAPI.fetchVideoURL(attachmentId: aid) else {
+                videoFallbackError = "接口没返回地址"
+                return
+            }
+            // 拿到的是试看地址就顺手推导完整列表
+            var target = u.unwrappedStream
+            if let outcome = await FullPlaylist.resolve(previewURL: target,
+                                                        ua: TopicAPI.ua,
+                                                        referer: TopicAPI.base + "/") as FullPlaylist.Outcome? {
+                if case .found(let full) = outcome { target = full }
+            }
+            await MainActor.run {
+                subanURL = target
+                playFromSuban = true
+                showPlayer = true
+            }
+        } catch {
+            videoFallbackError = error.localizedDescription
+        }
     }
 
     private func fmtDuration(_ s: Int) -> String {
