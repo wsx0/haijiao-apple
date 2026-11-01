@@ -49,6 +49,7 @@ on:
       - 'scripts/captcha-probe.mjs'
       - 'scripts/webapp-probe.mjs'
       - 'scripts/attachment-probe.mjs'
+      - 'scripts/video-api-probe.mjs'
       - 'scripts/sf-list-probe.mjs'
       - 'scripts/kitty-probe.mjs'
       - 'scripts/kitty-verify.mjs'
@@ -194,6 +195,9 @@ jobs:
       - name: 视频地址接口探测
         run: node scripts/attachment-probe.mjs
 
+      - name: video 接口细节
+        run: node scripts/video-api-probe.mjs
+
       - name: Kitty猫脚本分析
         run: node scripts/kitty-probe.mjs
 
@@ -257,6 +261,7 @@ jobs:
             out40/
             out41/
             out42/
+            out43/
             out28/
             out29/
           if-no-files-found: warn
