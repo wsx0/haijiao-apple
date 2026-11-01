@@ -249,33 +249,10 @@ struct TopicDetailView: View {
                     } else if let vatt = d.attachments.first(where: { ($0.category ?? "").lowercased().contains("video") }) {
                         // 详情接口没给 remoteUrl：登录态下改问 /api/video/<attachmentId>
                         videoFallbackEntry(vatt)
-                        // 附件里有 video 但 remoteUrl 为空：服务端当前不下发地址
-                        //（实测部分帖子是这样，多半是未登录/未购买策略）
-                        VStack(spacing: 6) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "video.slash")
-                                Text("这个帖子带视频，但站点没有给出播放地址")
-                                    .font(.system(size: 13))
-                            Text(diagVideoNote(d))
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(Theme.subtext.opacity(0.7))
-                                .textSelection(.enabled)
-                            }
-                            .foregroundStyle(Theme.subtext)
-                            Button {
-                                onOpenWeb(topicId)
-                            } label: {
-                                Text("用网页打开看视频")
-                                    .font(.system(size: 13, weight: .medium))
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(12)
-                        .background(Theme.placeholder, in: RoundedRectangle(cornerRadius: 8))
                         if subanBusy {
                             HStack(spacing: 6) {
                                 ProgressView().scaleEffect(0.7)
-                                Text("正在通过 suban 解析完整版…")
+                                Text("正在解析完整版…")
                                     .font(.system(size: 12))
                                     .foregroundStyle(Theme.subtext)
                             }
@@ -323,9 +300,43 @@ struct TopicDetailView: View {
                 } else if store.loading {
                     HStack { Spacer(); ProgressView(); Spacer() }.padding(.top, 40)
                 } else if let e = store.errorText {
-                    Text(e).font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("详情加载失败")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Theme.text)
+                        Text(e)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                        HStack(spacing: 12) {
+                            Button("重试") {
+                                Task { await store.load(topicId: topicId) }
+                            }
+                            Button("用网页打开") { onOpenWeb(topicId) }
+                        }
+                        .font(.system(size: 13))
+                    }
+                    .padding(.top, 30)
+                } else {
+                    // 既不 loading、没错误、也没有 detail：不能留白屏
+                    VStack(spacing: 10) {
+                        Image(systemName: "doc.text.magnifyingglass")
+                            .font(.system(size: 30))
+                            .foregroundStyle(Theme.subtext)
+                        Text("这个帖子没有可显示的内容")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Theme.subtext)
+                        HStack(spacing: 12) {
+                            Button("重新加载") {
+                                Task { await store.load(topicId: topicId) }
+                            }
+                            Button("用网页打开") { onOpenWeb(topicId) }
+                        }
+                        .font(.system(size: 13))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
                 }
             }
             .padding(16)
@@ -451,6 +462,13 @@ struct TopicDetailView: View {
                             .font(.system(size: 13, weight: .medium))
                     }
                 }
+            }
+
+            if let d = store.detail {
+                Text(diagVideoNote(d))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(Theme.subtext.opacity(0.6))
+                    .textSelection(.enabled)
             }
 
             if let e = videoFallbackError {
