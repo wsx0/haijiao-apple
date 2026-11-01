@@ -334,16 +334,23 @@ final class ImageGate {
         }
 
         // 掏 uid / token（多字段兼容）
+        // 登录响应实测结构：
+        // { "token":"ad3c…",                       ← 顶层
+        //   "user": { "id":20326334, "nickname":"…" },   ← uid 嵌在 user 里
+        //   "domain": …, "type": 3, … }
+        // 所以先看顶层，再遍历一层嵌套对象。
         func find(_ keys: [String]) -> String? {
-            for k in keys {
-                if let v = payload[k] as? String, !v.isEmpty, v != "null" { return v }
-                if let v = payload[k] as? Int { return String(v) }
-                if let nested = payload[k] as? [String: Any] {
-                    for k2 in keys {
-                        if let v = nested[k2] as? String, !v.isEmpty, v != "null" { return v }
-                        if let v = nested[k2] as? Int { return String(v) }
-                    }
+            func pick(_ dict: [String: Any]) -> String? {
+                for k in keys {
+                    if let v = dict[k] as? String, !v.isEmpty, v != "null" { return v }
+                    if let v = dict[k] as? Int { return String(v) }
                 }
+                return nil
+            }
+            if let v = pick(payload) { return v }
+            for (_, value) in payload {
+                guard let nested = value as? [String: Any] else { continue }
+                if let v = pick(nested) { return v }
             }
             return nil
         }
