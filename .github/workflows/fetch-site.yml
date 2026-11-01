@@ -47,6 +47,7 @@ on:
       - 'scripts/login-probe.mjs'
       - 'scripts/signin-probe.mjs'
       - 'scripts/captcha-probe.mjs'
+      - 'scripts/webapp-probe.mjs'
       - 'scripts/sf-list-probe.mjs'
       - 'scripts/kitty-probe.mjs'
       - 'scripts/kitty-verify.mjs'
@@ -186,6 +187,9 @@ jobs:
       - name: 验证码是否必需
         run: node scripts/captcha-probe.mjs
 
+      - name: 网页版可行性(CORS+推导命中率)
+        run: node scripts/webapp-probe.mjs
+
       - name: Kitty猫脚本分析
         run: node scripts/kitty-probe.mjs
 
@@ -247,6 +251,7 @@ jobs:
             out38/
             out39/
             out40/
+            out41/
             out28/
             out29/
           if-no-files-found: warn
