@@ -479,13 +479,39 @@ struct TopicDetailView: View {
             showPlayer = true
             return
         }
-        // 两个解析源：kitty（明文、简单）优先，其次 suban（加密协议）
         let kittyCode = UserDefaults.standard.string(forKey: "kitty.passcode")
         let subanToken = UserDefaults.standard.string(forKey: "suban.token")
         subanBusy = true
         subanError = nil
         Task {
             var lastError: String?
+
+            // ① 先试「CDN 同源完整列表」——不需要登录、不需要口令、不花钱。
+            //    原理：试看列表的分片名 <stream>_i0.ts 会暴露流 ID，
+            //    同目录下 <stream>_i.m3u8 就是完整列表（CDN 不校验付费状态）。
+            if previewURL.absoluteString.contains("_preview.m3u8") {
+                let outcome = await FullPlaylist.resolve(previewURL: previewURL,
+                                                         ua: TopicAPI.ua,
+                                                         referer: TopicAPI.base + "/")
+                switch outcome {
+                case .found(let full):
+                    await MainActor.run {
+                        subanBusy = false
+                        subanURL = full
+                        playFromSuban = true
+                        showPlayer = true
+                    }
+                    return
+                case .randomSegments:
+                    lastError = "新格式帖子（分片名随机），CDN 上无法推导完整列表"
+                case .noStreamId:
+                    lastError = "试看列表里解析不出流 ID"
+                case .notPreview:
+                    break
+                case .failed(let why):
+                    lastError = "完整列表推导失败：" + why
+                }
+            }
             if let k = kittyCode, !k.trimmingCharacters(in: .whitespaces).isEmpty {
                 do {
                     let u = try await KittyClient.decodeStream(topicId: tid, attachmentId: aid, passcode: k)
