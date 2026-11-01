@@ -251,6 +251,10 @@ struct TopicDetailView: View {
                                 Image(systemName: "video.slash")
                                 Text("这个帖子带视频，但站点没有给出播放地址")
                                     .font(.system(size: 13))
+                            Text(diagVideoNote(d))
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(Theme.subtext.opacity(0.7))
+                                .textSelection(.enabled)
                             }
                             .foregroundStyle(Theme.subtext)
                             Button {
@@ -395,6 +399,15 @@ struct TopicDetailView: View {
             }
             Divider()
         }
+    }
+
+    /// 视频附件的原始状态（给诊断用）：几个 video、remoteUrl 长度、登录态
+    private func diagVideoNote(_ d: TopicDetail) -> String {
+        let vids = d.attachments.filter { ($0.category ?? "").lowercased().contains("video") }
+        let lens = vids.map { ($0.remoteUrl ?? "").count }.map(String.init).joined(separator: "/")
+        let login = TopicAPI.isLoggedIn ? "已登录" : "未登录"
+        let cnt = d.attachments.count
+        return "video 附件 \(vids.count) 个（remoteUrl 长度 \(lens.isEmpty ? "-" : lens)）· 附件总数 \(cnt) · \(login)"
     }
 
     private func fmtDuration(_ s: Int) -> String {
